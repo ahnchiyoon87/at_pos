@@ -50,9 +50,9 @@ public class AnalysisProcessingService {
             return ResponseEntity.ok(responseMap);
 
         } catch (Exception e) {
-            System.err.println("Failed to process or send file: " + e.getMessage());
+            System.err.println("Failed to Analysis Content: " + e.getMessage());
             e.printStackTrace();
-            return ResponseEntity.internalServerError().build();
+            throw new RuntimeException("Error processing analysis content", e);
         }
     }
 }

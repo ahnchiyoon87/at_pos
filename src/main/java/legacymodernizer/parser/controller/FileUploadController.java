@@ -8,6 +8,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import legacymodernizer.parser.service.AnalysisProcessingService;
+
+import java.util.HashMap;
 import java.util.Map;
 
 @RestController
@@ -24,8 +26,9 @@ public class FileUploadController {
         try {
             return analysisProcessingService.analsisFile(file);
         } catch (Exception e) {
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(null);
-
+            Map<String, String> errorDetails = new HashMap<>();
+            errorDetails.put("error", "Failed to Analysis Content" + e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(errorDetails);
         }
     }
 }
