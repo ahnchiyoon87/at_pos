@@ -1,3 +1,4 @@
+///{packageLine}
 package legacymodernizer.parser.antlr;
 
 import org.antlr.v4.runtime.*;

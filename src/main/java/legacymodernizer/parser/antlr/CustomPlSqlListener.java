@@ -5,7 +5,6 @@ import java.util.Stack;
 import org.antlr.v4.runtime.TokenStream;
 
 public class CustomPlSqlListener extends PlSqlParserBaseListener {
-    @SuppressWarnings("unused")
     private TokenStream tokens;
     private Stack<Node> nodeStack = new Stack<>();
     private Node root = new Node("ROOT", 0, null); // 루트 노드
@@ -16,16 +15,12 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
 
     public CustomPlSqlListener(TokenStream tokens) {
         this.tokens = tokens;
+        nodeStack.push(root); // 초기 상태에서 루트 노드를 스택에 푸시
     }
 
     private void enterStatement(String statementType, int line) {
-        Node currentNode = new Node(statementType, line, nodeStack.isEmpty() ? null : nodeStack.peek());
-        if (nodeStack.isEmpty()) {
-            root = currentNode;           // 스택이 비어있으면 현재 노드를 루트로 설정
-            nodeStack.push(currentNode);  // 여기에서 루트 노드를 스택에 푸시
-        } else {
-            nodeStack.push(currentNode);
-        }
+        Node currentNode = new Node(statementType, line, nodeStack.peek());
+        nodeStack.push(currentNode);
         System.out.println("Enter " + statementType + " Statement Line: " + line);
     }
 

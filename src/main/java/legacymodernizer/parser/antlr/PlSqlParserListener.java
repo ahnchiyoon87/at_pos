@@ -1,5 +1,6 @@
-package legacymodernizer.parser.antlr;
 // Generated from ../PlSqlParser.g4 by ANTLR 4.13.1
+package legacymodernizer.parser.antlr;
+
 import org.antlr.v4.runtime.tree.ParseTreeListener;
 
 /**
