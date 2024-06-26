@@ -93,25 +93,37 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
     // exitStatement("UPDATE", ctx.getStop().getLine());
     // }
 
+    
+    // @Override
+    // public void enterBegin_or_end(PlSqlParser.Begin_or_endContext ctx) {
+        // enterStatement("BEGIN_OR_END", ctx.getStart().getLine());
+    // }
+    
+    // @Override
+    // public void exitBegin_or_end(PlSqlParser.Begin_or_endContext ctx) {
+        // exitStatement("BEGIN_OR_END", ctx.getStop().getLine());
+    // }
+
     // @Override
     // public void enterDeclare_spec(PlSqlParser.Declare_specContext ctx) {
     // enterStatement("DECLARE", ctx.getStart().getLine());
     // }
 
     // @Override
-    // public void enterBegin_or_end(PlSqlParser.Begin_or_endContext ctx) {
-    // enterStatement("BEGIN_OR_END", ctx.getStart().getLine());
-    // }
-
-    // @Override
-    // public void exitBegin_or_end(PlSqlParser.Begin_or_endContext ctx) {
-    // exitStatement("BEGIN_OR_END", ctx.getStop().getLine());
-    // }
-
-    // @Override
     // public void exitDeclare_spec(PlSqlParser.Declare_specContext ctx) {
     // exitStatement("DECLARE", ctx.getStop().getLine());
     // }
+
+    
+    @Override
+    public void enterSeq_of_declare_specs(PlSqlParser.Seq_of_declare_specsContext ctx) {
+        enterStatement("DECLARE", ctx.getStart().getLine());
+    }
+
+	@Override 
+    public void exitSeq_of_declare_specs(PlSqlParser.Seq_of_declare_specsContext ctx) {
+        exitStatement("DECLARE", ctx.getStop().getLine());
+    }
 
     @Override
     public void enterStatement(PlSqlParser.StatementContext ctx) {
