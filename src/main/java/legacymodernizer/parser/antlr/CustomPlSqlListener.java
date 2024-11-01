@@ -42,90 +42,16 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
         exitStatement("CREATE_PROCEDURE_BODY", ctx.getStop().getLine());
     }
 
-    // // 각 구문에 대한 enter와 exit 메서드 구현
-    // @Override
-    // public void enterIf_statement(PlSqlParser.If_statementContext ctx) {
-    // enterStatement("IF", ctx.getStart().getLine());
-    // }
-
-    // @Override
-    // public void exitIf_statement(PlSqlParser.If_statementContext ctx) {
-    // exitStatement("IF", ctx.getStop().getLine());
-    // }
-
-    // @Override
-    // public void enterProcedure_body(PlSqlParser.Procedure_bodyContext ctx) {
-    // enterStatement("PROCEDURE_BODY", ctx.getStart().getLine());
-    // }
-
-    // @Override
-    // public void exitProcedure_body(PlSqlParser.Procedure_bodyContext ctx) {
-    // exitStatement("PROCEDURE_BODY", ctx.getStop().getLine());
-    // }
-
-    // @Override
-    // public void enterFor_clause(PlSqlParser.For_clauseContext ctx) {
-    // enterStatement("FOR", ctx.getStart().getLine());
-    // }
-
-    // @Override
-    // public void exitFor_clause(PlSqlParser.For_clauseContext ctx) {
-    // exitStatement("FOR", ctx.getStop().getLine());
-    // }
-
-    // @Override
-    // public void enterSelect_statement(PlSqlParser.Select_statementContext ctx) {
-    // enterStatement("SELECT", ctx.getStart().getLine());
-    // }
-
-    // @Override
-    // public void exitSelect_statement(PlSqlParser.Select_statementContext ctx) {
-    // exitStatement("SELECT", ctx.getStop().getLine());
-    // }
-
-    // // 예시: Update 구문에 대한 진입과 빠져나옴 메서드 추가
-    // @Override
-    // public void enterUpdate_statement(PlSqlParser.Update_statementContext ctx) {
-    // enterStatement("UPDATE", ctx.getStart().getLine());
-    // }
-
-    // @Override
-    // public void exitUpdate_statement(PlSqlParser.Update_statementContext ctx) {
-    // exitStatement("UPDATE", ctx.getStop().getLine());
-    // }
-
-    
-    // @Override
-    // public void enterBegin_or_end(PlSqlParser.Begin_or_endContext ctx) {
-        // enterStatement("BEGIN_OR_END", ctx.getStart().getLine());
-    // }
-    
-    // @Override
-    // public void exitBegin_or_end(PlSqlParser.Begin_or_endContext ctx) {
-        // exitStatement("BEGIN_OR_END", ctx.getStop().getLine());
-    // }
-
-    // @Override
-    // public void enterDeclare_spec(PlSqlParser.Declare_specContext ctx) {
-    // enterStatement("DECLARE", ctx.getStart().getLine());
-    // }
-
-    // @Override
-    // public void exitDeclare_spec(PlSqlParser.Declare_specContext ctx) {
-    // exitStatement("DECLARE", ctx.getStop().getLine());
-    // }
-
-    @Override 
+    @Override
     public void enterAssignment_statement(PlSqlParser.Assignment_statementContext ctx) {
         enterStatement("ASSIGNMENT", ctx.getStart().getLine());
     }
 
-    
-    @Override 
+    @Override
     public void exitAssignment_statement(PlSqlParser.Assignment_statementContext ctx) {
         exitStatement("ASSIGNMENT", ctx.getStart().getLine());
     }
-    
+
     @Override
     public void enterIf_statement(PlSqlParser.If_statementContext ctx) {
         enterStatement("IF", ctx.getStart().getLine());
@@ -136,13 +62,13 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
         exitStatement("IF", ctx.getStop().getLine());
     }
 
-    @Override 
-    public void enterInsert_statement(PlSqlParser.Insert_statementContext ctx) { 
+    @Override
+    public void enterInsert_statement(PlSqlParser.Insert_statementContext ctx) {
         enterStatement("INSERT", ctx.getStart().getLine());
     }
-    
-	@Override 
-    public void exitInsert_statement(PlSqlParser.Insert_statementContext ctx) { 
+
+    @Override
+    public void exitInsert_statement(PlSqlParser.Insert_statementContext ctx) {
         exitStatement("INSERT", ctx.getStop().getLine());
     }
 
@@ -166,43 +92,43 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
         exitStatement("UPDATE", ctx.getStop().getLine());
     }
 
-    @Override 
+    @Override
     public void enterExecute_immediate(PlSqlParser.Execute_immediateContext ctx) {
         enterStatement("EXECUTE_IMMDDIATE", ctx.getStart().getLine());
     }
-	
-	@Override 
+
+    @Override
     public void exitExecute_immediate(PlSqlParser.Execute_immediateContext ctx) {
         exitStatement("EXECUTE_IMMDDIATE", ctx.getStop().getLine());
     }
 
-	@Override 
-    public void enterMerge_statement(PlSqlParser.Merge_statementContext ctx) { 
+    @Override
+    public void enterMerge_statement(PlSqlParser.Merge_statementContext ctx) {
         enterStatement("MERGE", ctx.getStart().getLine());
     }
 
-	@Override 
-    public void exitMerge_statement(PlSqlParser.Merge_statementContext ctx) { 
+    @Override
+    public void exitMerge_statement(PlSqlParser.Merge_statementContext ctx) {
         exitStatement("MERGE", ctx.getStop().getLine());
     }
 
-    @Override 
+    @Override
     public void enterDelete_statement(PlSqlParser.Delete_statementContext ctx) {
         enterStatement("DELETE", ctx.getStart().getLine());
     }
 
-    @Override 
-    public void exitDelete_statement(PlSqlParser.Delete_statementContext ctx) { 
+    @Override
+    public void exitDelete_statement(PlSqlParser.Delete_statementContext ctx) {
         exitStatement("DELETE", ctx.getStop().getLine());
     }
-    
-    @Override 
-    public void enterLoop_statement(PlSqlParser.Loop_statementContext ctx) { 
+
+    @Override
+    public void enterLoop_statement(PlSqlParser.Loop_statementContext ctx) {
         enterStatement("WHILE", ctx.getStart().getLine());
     }
 
-    @Override 
-    public void exitLoop_statement(PlSqlParser.Loop_statementContext ctx) { 
+    @Override
+    public void exitLoop_statement(PlSqlParser.Loop_statementContext ctx) {
         exitStatement("WHILE", ctx.getStop().getLine());
     }
 
@@ -211,24 +137,28 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
         enterStatement("DECLARE", ctx.getStart().getLine());
     }
 
-	@Override 
+    @Override
     public void exitSeq_of_declare_specs(PlSqlParser.Seq_of_declare_specsContext ctx) {
         exitStatement("DECLARE", ctx.getStop().getLine());
     }
 
-	@Override public void enterReturn_statement(PlSqlParser.Return_statementContext ctx) { 
+    @Override
+    public void enterReturn_statement(PlSqlParser.Return_statementContext ctx) {
         enterStatement("RETURN", ctx.getStart().getLine());
     }
-    
-    @Override public void exitReturn_statement(PlSqlParser.Return_statementContext ctx) { 
+
+    @Override
+    public void exitReturn_statement(PlSqlParser.Return_statementContext ctx) {
         exitStatement("RETURN", ctx.getStop().getLine());
     }
-    
-	@Override public void enterExceptions_clause(PlSqlParser.Exceptions_clauseContext ctx) { 
+
+    @Override
+    public void enterExceptions_clause(PlSqlParser.Exceptions_clauseContext ctx) {
         enterStatement("EXCEPTION", ctx.getStart().getLine());
     }
-    
-    @Override public void exitExceptions_clause(PlSqlParser.Exceptions_clauseContext ctx) { 
+
+    @Override
+    public void exitExceptions_clause(PlSqlParser.Exceptions_clauseContext ctx) {
         exitStatement("EXCEPTION", ctx.getStop().getLine());
     }
 
@@ -242,17 +172,75 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
         enterStatement("CALL", ctx.getStart().getLine());
     }
 
+    @Override
+    public void enterCreate_package(PlSqlParser.Create_packageContext ctx) {
+        enterStatement("PACKAGE_SPEC", ctx.getStart().getLine());
+    }
+
+    @Override
+    public void exitCreate_package(PlSqlParser.Create_packageContext ctx) {
+        exitStatement("PACKAGE_SPEC", ctx.getStop().getLine());
+    }
+
+    @Override
+    public void enterCreate_package_body(PlSqlParser.Create_package_bodyContext ctx) {
+        enterStatement("PACKAGE_BODY", ctx.getStart().getLine());
+    }
+
+    @Override
+    public void exitCreate_package_body(PlSqlParser.Create_package_bodyContext ctx) {
+        exitStatement("PACKAGE_BODY", ctx.getStop().getLine());
+    }
+
+    @Override
+    public void enterProcedure_spec(PlSqlParser.Procedure_specContext ctx) {
+        enterStatement("PROCEDURE_SPEC", ctx.getStart().getLine());
+    }
+
+    @Override
+    public void exitProcedure_spec(PlSqlParser.Procedure_specContext ctx) {
+        exitStatement("PROCEDURE_SPEC", ctx.getStop().getLine());
+    }
+
+    @Override
+    public void enterFunction_spec(PlSqlParser.Function_specContext ctx) {
+        enterStatement("FUNCTION_SPEC", ctx.getStart().getLine());
+    }
+
+    @Override
+    public void exitFunction_spec(PlSqlParser.Function_specContext ctx) {
+        exitStatement("FUNCTION_SPEC", ctx.getStop().getLine());
+    }
+
+    @Override
+    public void enterFunction_body(PlSqlParser.Function_bodyContext ctx) {
+        enterStatement("FUNCTION_BODY", ctx.getStart().getLine());
+    }
+
+    @Override
+    public void exitFunction_body(PlSqlParser.Function_bodyContext ctx) {
+        exitStatement("FUNCTION_BODY", ctx.getStop().getLine());
+    }
+
+    @Override
+    public void enterVariable_declaration(PlSqlParser.Variable_declarationContext ctx) {
+        enterStatement("VARIABLE", ctx.getStart().getLine());
+    }
+
+    @Override
+    public void exitVariable_declaration(PlSqlParser.Variable_declarationContext ctx) {
+        exitStatement("VARIABLE", ctx.getStop().getLine());
+    }
+
     // @Override
     // public void enterStatement(PlSqlParser.StatementContext ctx) {
-    //     enterStatement("STATEMENT", ctx.getStart().getLine());
+    // enterStatement("STATEMENT", ctx.getStart().getLine());
     // }
 
     // @Override
     // public void exitStatement(PlSqlParser.StatementContext ctx) {
-    //     exitStatement("STATEMENT", ctx.getStop().getLine());
+    // exitStatement("STATEMENT", ctx.getStop().getLine());
     // }
-
-    // 나머지 구문(Select, Update 등)에 대한 enter와 exit 메서드도 비슷한 방식으로 구현합니다.
 
     // 트리 구조를 출력하는 메서드 (디버깅 목적)
     public void printTree(Node node, String indent) {
