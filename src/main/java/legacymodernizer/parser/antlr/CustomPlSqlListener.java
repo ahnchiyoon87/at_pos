@@ -153,23 +153,37 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
     }
 
     @Override
-    public void enterExceptions_clause(PlSqlParser.Exceptions_clauseContext ctx) {
+    public void enterException_handler(PlSqlParser.Exception_handlerContext ctx) {
         enterStatement("EXCEPTION", ctx.getStart().getLine());
     }
-
+    
     @Override
-    public void exitExceptions_clause(PlSqlParser.Exceptions_clauseContext ctx) {
+    public void exitException_handler(PlSqlParser.Exception_handlerContext ctx) {
         exitStatement("EXCEPTION", ctx.getStop().getLine());
     }
 
     @Override
     public void enterCall_statement(PlSqlParser.Call_statementContext ctx) {
-        enterStatement("CALL", ctx.getStart().getLine());
+        String statementType = "CALL";
+        if (!ctx.routine_name().isEmpty()) {
+            PlSqlParser.Routine_nameContext routineName = ctx.routine_name(0); // 첫 번째 routine_name 가져오기
+            if (routineName.getText().toUpperCase().contains("RAISE")) {
+                statementType = "RAISE";
+            }
+        }
+        enterStatement(statementType, ctx.getStart().getLine());
     }
-
+    
     @Override
     public void exitCall_statement(PlSqlParser.Call_statementContext ctx) {
-        enterStatement("CALL", ctx.getStart().getLine());
+        String statementType = "CALL";
+        if (!ctx.routine_name().isEmpty()) {
+            PlSqlParser.Routine_nameContext routineName = ctx.routine_name(0);
+            if (routineName.getText().toUpperCase().contains("RAISE")) {
+                statementType = "RAISE";
+            }
+        }
+        exitStatement(statementType, ctx.getStop().getLine());
     }
 
     @Override
@@ -191,45 +205,28 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
     public void exitCreate_package_body(PlSqlParser.Create_package_bodyContext ctx) {
         exitStatement("PACKAGE_BODY", ctx.getStop().getLine());
     }
+    
 
     @Override
-    public void enterProcedure_spec(PlSqlParser.Procedure_specContext ctx) {
-        enterStatement("PROCEDURE_SPEC", ctx.getStart().getLine());
+    public void enterPackage_obj_spec(PlSqlParser.Package_obj_specContext ctx) {
+        enterStatement("PACKAGE_SPEC_MEMBER", ctx.getStart().getLine());
     }
 
     @Override
-    public void exitProcedure_spec(PlSqlParser.Procedure_specContext ctx) {
-        exitStatement("PROCEDURE_SPEC", ctx.getStop().getLine());
+    public void exitPackage_obj_spec(PlSqlParser.Package_obj_specContext ctx) {
+        exitStatement("PACKAGE_SPEC_MEMBER", ctx.getStop().getLine());
     }
 
     @Override
-    public void enterFunction_spec(PlSqlParser.Function_specContext ctx) {
-        enterStatement("FUNCTION_SPEC", ctx.getStart().getLine());
+    public void enterPackage_obj_body(PlSqlParser.Package_obj_bodyContext ctx) {
+        String memberType = ctx.function_body() != null ? "FUNCTION" : "PACKAGE_BODY_MEMBER";
+        enterStatement(memberType, ctx.getStart().getLine());
     }
-
+    
     @Override
-    public void exitFunction_spec(PlSqlParser.Function_specContext ctx) {
-        exitStatement("FUNCTION_SPEC", ctx.getStop().getLine());
-    }
-
-    @Override
-    public void enterFunction_body(PlSqlParser.Function_bodyContext ctx) {
-        enterStatement("FUNCTION_BODY", ctx.getStart().getLine());
-    }
-
-    @Override
-    public void exitFunction_body(PlSqlParser.Function_bodyContext ctx) {
-        exitStatement("FUNCTION_BODY", ctx.getStop().getLine());
-    }
-
-    @Override
-    public void enterVariable_declaration(PlSqlParser.Variable_declarationContext ctx) {
-        enterStatement("VARIABLE", ctx.getStart().getLine());
-    }
-
-    @Override
-    public void exitVariable_declaration(PlSqlParser.Variable_declarationContext ctx) {
-        exitStatement("VARIABLE", ctx.getStop().getLine());
+    public void exitPackage_obj_body(PlSqlParser.Package_obj_bodyContext ctx) {
+        String memberType = ctx.function_body() != null ? "FUNCTION" : "PACKAGE_BODY_MEMBER";
+        exitStatement(memberType, ctx.getStop().getLine());
     }
 
     // @Override

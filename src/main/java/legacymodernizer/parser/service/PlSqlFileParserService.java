@@ -58,14 +58,6 @@ public class PlSqlFileParserService {
         file.transferTo(outputFile);                                       
         String fileContent = readFileContent(outputFile);                  
         String objectName = extractSqlObjectName(fileContent); 
-           
-        // 파일 확장자 처리
-        String fileExtension = "";
-        int lastIndexOf = fileName.lastIndexOf(".");
-        if (lastIndexOf > 0) {
-            fileExtension = fileName.substring(lastIndexOf);
-        }
-        objectName = objectName + fileExtension;
 
         System.out.println("추출된 SQL 객체 이름: " + objectName);
         return Map.of("fileName", fileName, "fileContent", fileContent, "objectName", objectName);
