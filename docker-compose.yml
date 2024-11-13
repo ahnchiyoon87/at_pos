@@ -1,7 +1,12 @@
 version: '3.8'
 services:
-  app:
-    build: .
-    image: antlr:latest
+  antlr:
+    image: uhnpybara/antlr:1113
     ports:
       - "8081:8081"
+    volumes:
+      - antlr-plsql-data:/app/data/plsql
+      - antlr-analysis-data:/app/data/analysis
+    environment:
+      PLSQL_DIR: /app/data/plsql
+      ANALYSIS_DIR: /app/data/analysis

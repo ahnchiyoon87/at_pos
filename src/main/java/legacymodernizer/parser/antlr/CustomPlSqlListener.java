@@ -49,7 +49,7 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
 
     @Override
     public void exitAssignment_statement(PlSqlParser.Assignment_statementContext ctx) {
-        exitStatement("ASSIGNMENT", ctx.getStart().getLine());
+        exitStatement("ASSIGNMENT", ctx.getStop().getLine());
     }
 
     @Override
