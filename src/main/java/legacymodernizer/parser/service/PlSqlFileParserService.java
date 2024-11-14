@@ -55,7 +55,15 @@ public class PlSqlFileParserService {
 
         // 파일 저장 및 내용 분석
         File outputFile = new File(directory, fileName);
-        file.transferTo(outputFile);                                       
+
+        // 파일이 이미 존재하지 않는 경우에만 저장
+        if (!outputFile.exists()) {
+            file.transferTo(outputFile);
+            System.out.println("새 파일 저장됨: " + fileName);
+        } else {
+            System.out.println("파일이 이미 존재하여 저장하지 않음: " + fileName);
+        }
+
         String fileContent = readFileContent(outputFile);                  
         String objectName = extractSqlObjectName(fileContent); 
 
@@ -63,6 +71,7 @@ public class PlSqlFileParserService {
         return Map.of("fileName", fileName, "fileContent", fileContent, "objectName", objectName);
     }
 
+    
     /**
      * 파일의 내용을 다양한 인코딩으로 시도하여 읽어옴
      * @param file 읽을 파일 객체
