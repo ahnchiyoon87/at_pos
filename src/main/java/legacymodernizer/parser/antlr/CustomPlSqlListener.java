@@ -50,6 +50,7 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
     
     @Override
     public void exitCreate_package_body(PlSqlParser.Create_package_bodyContext ctx) {
+        
         exitStatement("PACKAGE_BODY", ctx.getStop().getLine());
     }
     
@@ -57,6 +58,14 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
     @Override
     public void enterCreate_procedure_body(PlSqlParser.Create_procedure_bodyContext ctx) {
         enterStatement("CREATE_PROCEDURE_BODY", ctx.getStart().getLine());
+
+        enterStatement("SPEC", ctx.getStart().getLine());
+        
+        if (ctx.IS() != null) {
+            exitStatement("SPEC", ctx.IS().getSymbol().getLine() - 1);
+        } else if (ctx.AS() != null) {
+            exitStatement("SPEC", ctx.AS().getSymbol().getLine() - 1);
+        }
     }
 
     @Override
