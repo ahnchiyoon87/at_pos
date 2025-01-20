@@ -123,15 +123,19 @@ public class FileUploadController {
         List<String> failedFiles = new ArrayList<>();
     
         for (Map<String, String> fileInfo : fileNames) {
-            try {
-                String fileName = fileInfo.get("fileName");
-                plSqlFileParserService.parseAndSaveStructure(fileName, sessionUUID);
-                successFiles.add(fileName);
-                System.out.println("파일 분석 완료: " + fileName);
-            } catch (Exception e) {
-                System.out.println("파일 분석 실패: " + fileInfo.get("fileName"));
-                e.printStackTrace();
-                failedFiles.add(fileInfo.get("fileName"));
+            String fileName = fileInfo.get("fileName");
+            if (fileName != null && fileName.toLowerCase().endsWith(".sql")) {  // 확장자 체크    
+                try {
+                    plSqlFileParserService.parseAndSaveStructure(fileName, sessionUUID);
+                    successFiles.add(fileName);
+                    System.out.println("파일 분석 완료: " + fileName);
+                } catch (Exception e) {
+                    System.out.println("파일 분석 실패: " + fileName);
+                    e.printStackTrace();
+                    failedFiles.add(fileName);
+                }
+            } else {
+                System.out.println("파일 확장자가 .sql이 아님: " + fileInfo.get("fileName"));
             }
         }
     

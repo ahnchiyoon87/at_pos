@@ -205,7 +205,7 @@ public class PlSqlFileParserService {
         createDirectoryIfNotExists(analysisDir);
         
         // PLSQL 파일 목록 가져오기
-        File[] allFiles = plsqlDirectory.listFiles();
+        File[] allFiles = plsqlDirectory.listFiles((dir, name) -> name.toLowerCase().endsWith(".sql"));
         if (allFiles == null || allFiles.length == 0) {
             throw new IOException("파일을 찾을 수 없음: " + plsqlDir);
         }
