@@ -138,62 +138,98 @@ public class PlSqlFileParserService {
      */
     public List<Map<String, String>> processTestSample(List<String> fileNames, String sessionUUID) throws IOException {
         List<Map<String, String>> successFiles = new ArrayList<>();
-        List<Map<String, String>> failedFiles = new ArrayList<>();
         
         // src 디렉토리 경로 확인
         String srcDir = getTargetDirectory(sessionUUID, null); // PLSQL_DIR 사용
-        File directory = new File(srcDir);
+        // 분석 디렉토리 경로
+        String analysisDir = getAnalysisDirectory(sessionUUID);
         
-        if (!directory.exists() || !directory.isDirectory()) {
+        File directory = new File(srcDir);
+        File analysisDirectory = new File(analysisDir);
+        
+        if (!directory.exists()) {
             throw new IOException("소스 디렉토리를 찾을 수 없음: " + srcDir);
+        }
+        
+        // 분석 디렉토리가 없으면 생성
+        if (!analysisDirectory.exists()) {
+            createDirectoryIfNotExists(analysisDir);
+        }
+        
+        // 디렉토리 내 모든 파일 목록 가져오기 (탐색 성능 향상을 위해)
+        File[] allFiles = directory.listFiles();
+        if (allFiles == null || allFiles.length == 0) {
+            System.out.println("디렉토리에 파일이 없음: " + srcDir);
+            return successFiles;
         }
         
         // 각 파일에 대해 처리 수행
         for (String procedureName : fileNames) {
-            // 파일명으로 변환 (확장자 추가)
-            String fileName = procedureName;
-            if (!fileName.toLowerCase().endsWith(".sql")) {
-                fileName = fileName + ".sql";
-            }
+            // 파일 이름으로 변환 (확장자 추가)
+            String sqlFileName = procedureName + ".sql";
+            String baseFileName = procedureName;  // 확장자 없는 이름
             
-            File targetFile = new File(directory, fileName);
+            // 분석 결과 파일 경로 확인
+            File analysisFile = new File(analysisDir, baseFileName + ".json");
             
-            if (targetFile.exists() && targetFile.isFile()) {
-                try {
-                    String fileContent = readFileContent(targetFile);
-                    String objectName = extractSqlObjectName(fileContent);
-                    String fileType = getFileType(fileName);
-                    
-                    Map<String, String> fileData = new HashMap<>();
-                    fileData.put("objectName", objectName != null ? objectName : "");
-                    fileData.put("fileContent", fileContent);
-                    fileData.put("fileName", fileName);
-                    fileData.put("fileType", fileType);
-                    
-                    successFiles.add(fileData);
-                    System.out.println("테스트 샘플 파일 처리 완료: " + fileName + " (오브젝트 이름: " + objectName + ")");
-                } catch (Exception e) {
-                    System.out.println("테스트 샘플 파일 처리 실패: " + fileName);
-                    e.printStackTrace();
-                    
-                    Map<String, String> failedFileData = new HashMap<>();
-                    failedFileData.put("fileName", fileName);
-                    failedFileData.put("error", "파일 처리 실패: " + e.getMessage());
-                    failedFiles.add(failedFileData);
-                }
-            } else {
-                System.out.println("테스트 샘플 파일을 찾을 수 없음: " + fileName);
+            // 원본 SQL 파일 확인 - 여러 방법으로 파일 찾기
+            File targetFile = new File(directory, sqlFileName);
+            
+            // 파일이 없으면 대소문자 구분 없이 디렉토리에서 찾기 시도
+            if (!targetFile.exists()) {
+                System.out.println("기본 이름으로 파일을 찾을 수 없음, 디렉토리 검색 시도: " + sqlFileName);
                 
-                Map<String, String> failedFileData = new HashMap<>();
-                failedFileData.put("fileName", fileName);
-                failedFileData.put("error", "파일을 찾을 수 없음");
-                failedFiles.add(failedFileData);
+                boolean found = false;
+                for (File file : allFiles) {
+                    if (file.isFile() && file.getName().equalsIgnoreCase(sqlFileName)) {
+                        targetFile = file;
+                        found = true;
+                        System.out.println("대소문자 무시 비교로 파일 찾음: " + file.getName());
+                        break;
+                    }
+                }
+                
+                if (!found) {
+                    System.out.println("파일을 찾을 수 없음: " + sqlFileName);
+                    continue;
+                }
             }
-        }
-        
-        // 실패한 파일이 있다면 로그로 기록
-        if (!failedFiles.isEmpty()) {
-            System.out.println("일부 테스트 샘플 파일 처리 실패: " + failedFiles.size() + "개");
+            
+            // 파일 내용 읽기
+            try {
+                String fileContent = readFileContent(targetFile);
+                String objectName = extractSqlObjectName(fileContent);
+                String fileType = getFileType(targetFile.getName());
+                
+                // 분석 결과가 없는 경우만 분석 수행
+                if (!analysisFile.exists()) {
+                    System.out.println("분석 필요: " + targetFile.getName());
+                    try {
+                        // 분석 수행
+                        parseAndSaveStructure(targetFile.getName(), sessionUUID);
+                        System.out.println("분석 완료: " + targetFile.getName());
+                    } catch (Exception e) {
+                        System.out.println("분석 실패 (무시하고 계속 진행): " + targetFile.getName());
+                        e.printStackTrace();
+                    }
+                } else {
+                    System.out.println("이미 분석된 파일: " + targetFile.getName() + " - 분석 건너뜀");
+                }
+                
+                // 성공 목록에 추가 (분석 성공 여부와 관계없이)
+                Map<String, String> fileData = new HashMap<>();
+                fileData.put("objectName", objectName != null ? objectName : "");
+                fileData.put("fileContent", fileContent);
+                fileData.put("fileName", targetFile.getName());
+                fileData.put("fileType", fileType);
+                fileData.put("analysisExists", String.valueOf(analysisFile.exists()));
+                
+                successFiles.add(fileData);
+                System.out.println("테스트 샘플 파일 처리 완료: " + targetFile.getName());
+            } catch (Exception e) {
+                System.out.println("파일 처리 중 오류 발생: " + targetFile.getName());
+                e.printStackTrace();
+            }
         }
         
         return successFiles;

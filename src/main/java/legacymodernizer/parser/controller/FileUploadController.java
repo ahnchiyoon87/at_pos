@@ -201,26 +201,32 @@ public class FileUploadController {
         
         System.out.println("테스트 샘플 처리 시작: " + procedureNames.size() + "개의 프로시저");
 
+        List<Map<String, String>> successFiles = new ArrayList<>();
+        String errorMessage = null;
+        
         try {
             // 서비스를 통해 파일 정보 조회
-            List<Map<String, String>> successFiles = plSqlFileParserService.processTestSample(procedureNames, sessionUUID);
-            
-            if (successFiles.isEmpty()) {
-                System.out.println("처리할 수 있는 파일이 없습니다.");
-                return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                        .body(Map.of("message", "처리할 수 있는 파일이 없습니다."));
-            }
-            
-            // 성공 결과 반환
-            System.out.println("테스트 샘플 처리 완료: " + successFiles.size() + "개의 파일");
-            return ResponseEntity.ok(Map.of("successFiles", successFiles));
-            
+            successFiles = plSqlFileParserService.processTestSample(procedureNames, sessionUUID);
         } catch (Exception e) {
             System.out.println("테스트 샘플 처리 중 오류 발생");
             e.printStackTrace();
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(Map.of("message", "처리 중 오류가 발생했습니다: " + e.getMessage()));
+            errorMessage = "처리 중 일부 오류가 발생했습니다: " + e.getMessage();
         }
+        
+        if (successFiles.isEmpty()) {
+            System.out.println("처리할 수 있는 파일이 없습니다.");
+            return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(Map.of("message", errorMessage != null ? errorMessage : "처리할 수 있는 파일이 없습니다."));
+        }
+        
+        // 성공 결과 반환
+        System.out.println("테스트 샘플 처리 완료: " + successFiles.size() + "개의 파일");
+        Map<String, Object> response = new HashMap<>();
+        response.put("successFiles", successFiles);
+        if (errorMessage != null) {
+            response.put("warning", errorMessage);
+        }
+        return ResponseEntity.ok(response);
     }
 
 }
