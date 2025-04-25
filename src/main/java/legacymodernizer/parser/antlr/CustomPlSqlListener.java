@@ -160,6 +160,26 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
     }
 
     @Override
+    public void enterElsif_part(PlSqlParser.Elsif_partContext ctx) {
+        enterStatement("ELSIF", ctx.getStart().getLine());
+    }
+
+    @Override
+    public void exitElsif_part(PlSqlParser.Elsif_partContext ctx) {
+        exitStatement("ELSIF", ctx.getStop().getLine());
+    }
+    
+    @Override
+    public void enterElse_part(PlSqlParser.Else_partContext ctx) {
+        enterStatement("ELSE", ctx.getStart().getLine());
+    }
+
+    @Override
+    public void exitElse_part(PlSqlParser.Else_partContext ctx) {
+        exitStatement("ELSE", ctx.getStop().getLine());
+    }
+    
+    @Override
     public void enterLoop_statement(PlSqlParser.Loop_statementContext ctx) {
         enterStatement("LOOP", ctx.getStart().getLine());
     }
@@ -220,7 +240,7 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
         if (!text.contains("BEGIN") && 
             ctx.getParent() instanceof PlSqlParser.BodyContext && 
             ctx.getParent().getParent() instanceof PlSqlParser.StatementContext) {
-            enterStatement("TRY", ctx.getStart().getLine());
+            enterStatement("TRY", ctx.getStart().getLine() - 1); // TRY 노드의 시작 라인을 -1 적용
         }
     }
     
@@ -276,6 +296,16 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
             }
         }
         exitStatement(statementType, ctx.getStop().getLine());
+    }
+
+    @Override
+    public void enterCommit_statement(PlSqlParser.Commit_statementContext ctx) {
+        enterStatement("COMMIT", ctx.getStart().getLine());
+    }
+    
+    @Override
+    public void exitCommit_statement(PlSqlParser.Commit_statementContext ctx) {
+        exitStatement("COMMIT", ctx.getStop().getLine());
     }
 
     @Override
@@ -340,6 +370,26 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
         String memberType = ctx.function_body() != null ? "FUNCTION" : "PROCEDURE";
         exitStatement(memberType, ctx.getStop().getLine());
     }
+
+    // @Override
+    // public void enterCreate_table(PlSqlParser.Create_tableContext ctx) {
+    //     enterStatement("CREATE_TABLE", ctx.getStart().getLine());
+    // }
+    
+    // @Override
+    // public void exitCreate_table(PlSqlParser.Create_tableContext ctx) {
+    //     exitStatement("CREATE_TABLE", ctx.getStop().getLine());
+    // }
+
+    // @Override
+    // public void enterCreate_sequence(PlSqlParser.Create_sequenceContext ctx) {
+    //     enterStatement("CREATE_SEQUENCE", ctx.getStart().getLine());
+    // }
+
+    // @Override
+    // public void exitCreate_sequence(PlSqlParser.Create_sequenceContext ctx) {
+    //     exitStatement("CREATE_SEQUENCE", ctx.getStop().getLine());
+    // }
 
     // 트리 구조를 출력하는 메서드 (디버깅 목적)
     public void printTree(Node node, String indent) {
