@@ -50,8 +50,10 @@ public class PlSqlFileParserService {
 
 
     // SQL 객체(패키지, 프로시저, 함수 등)의 이름을 추출하기 위한 정규식 패턴
+    // 스키마명.객체명 형태에서 객체명만 추출 (점 이후의 이름)
+    // 주의: PACKAGE BODY가 PACKAGE보다 먼저 와야 올바르게 매칭됨
     private static final Pattern SQL_OBJECT_PATTERN = Pattern.compile(
-        "CREATE\\s+OR\\s+REPLACE\\s+(?:PACKAGE|PACKAGE BODY|PROCEDURE|FUNCTION)\\s+([\\w$]+)", 
+        "CREATE\\s+OR\\s+REPLACE\\s+(?:PACKAGE\\s+BODY|PACKAGE|PROCEDURE|FUNCTION)\\s+(?:[\\w$]+\\.)?([\\w$]+)", 
         Pattern.CASE_INSENSITIVE
     );
 
