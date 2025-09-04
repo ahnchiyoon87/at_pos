@@ -41,9 +41,9 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
         enterStatement("SPEC", ctx.getStart().getLine());
         
         if (ctx.IS() != null) {
-            exitStatement("SPEC", ctx.IS().getSymbol().getLine() - 1);
+            exitStatement("SPEC", ctx.IS().getSymbol().getLine());
         } else if (ctx.AS() != null) {
-            exitStatement("SPEC", ctx.AS().getSymbol().getLine() - 1);
+            exitStatement("SPEC", ctx.AS().getSymbol().getLine());
         }
     }
 
@@ -57,9 +57,9 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
         enterStatement("FUNCTION", ctx.getStart().getLine());
         enterStatement("SPEC", ctx.getStart().getLine());
         if (ctx.IS() != null) {
-            exitStatement("SPEC", ctx.IS().getSymbol().getLine() - 1);
+            exitStatement("SPEC", ctx.IS().getSymbol().getLine());
         } else if (ctx.AS() != null) {
-            exitStatement("SPEC", ctx.AS().getSymbol().getLine() - 1);
+            exitStatement("SPEC", ctx.AS().getSymbol().getLine());
         }
     }
 
@@ -250,6 +250,39 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
         exitStatement("MERGE", ctx.getStop().getLine());
     }
 
+    // MERGE 하위 WHEN 절: UPDATE
+    @Override
+    public void enterMerge_update_clause(PlSqlParser.Merge_update_clauseContext ctx) {
+        enterStatement("UPDATE", ctx.getStart().getLine());
+    }
+
+    @Override
+    public void exitMerge_update_clause(PlSqlParser.Merge_update_clauseContext ctx) {
+        exitStatement("UPDATE", ctx.getStop().getLine());
+    }
+
+    // MERGE 하위 WHEN 절: INSERT
+    @Override
+    public void enterMerge_insert_clause(PlSqlParser.Merge_insert_clauseContext ctx) {
+        enterStatement("INSERT", ctx.getStart().getLine());
+    }
+
+    @Override
+    public void exitMerge_insert_clause(PlSqlParser.Merge_insert_clauseContext ctx) {
+        exitStatement("INSERT", ctx.getStop().getLine());
+    }
+
+    // MERGE 하위 UPDATE 절 내의 선택적 DELETE WHERE
+    @Override
+    public void enterMerge_update_delete_part(PlSqlParser.Merge_update_delete_partContext ctx) {
+        enterStatement("DELETE", ctx.getStart().getLine());
+    }
+
+    @Override
+    public void exitMerge_update_delete_part(PlSqlParser.Merge_update_delete_partContext ctx) {
+        exitStatement("DELETE", ctx.getStop().getLine());
+    }
+
     // @Override
     // public void enterSelect_statement(PlSqlParser.Select_statementContext ctx) {
     //     enterStatement("SELECT", ctx.getStart().getLine());
@@ -327,7 +360,7 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
     @Override
     public void enterException_handler(PlSqlParser.Exception_handlerContext ctx) {
         if (!"EXCEPTION".equals(nodeStack.peek().type)) { // 첫 핸들러라면
-            enterStatement("EXCEPTION", ctx.getStart().getLine());
+            enterStatement("EXCEPTION", ctx.getStart().getLine() -1);
         }
     }
     
@@ -366,7 +399,7 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
         if (!text.contains("BEGIN") && 
             ctx.getParent() instanceof PlSqlParser.BodyContext && 
             ctx.getParent().getParent() instanceof PlSqlParser.StatementContext) {
-            enterStatement("TRY", ctx.getStart().getLine() - 1); // TRY 노드의 시작 라인을 -1 적용
+            enterStatement("TRY", ctx.getStart().getLine()); // TRY 노드의 시작 라인을 -1 적용
         }
     }
     
