@@ -49,12 +49,16 @@ public class PlSqlFileParserService {
     private static final String ANALYSIS_DIR = "analysis";
 
 
-    // SQL 객체(패키지, 프로시저, 함수 등)의 이름을 추출하기 위한 정규식 패턴
-    // 스키마명.객체명 형태에서 객체명만 추출 (점 이후의 이름)
-    // 주의: PACKAGE BODY가 PACKAGE보다 먼저 와야 올바르게 매칭됨
+    // SQL 객체(패키지/프로시저/함수/트리거)의 이름을 추출하기 위한 정규식 패턴
+    // 특징:
+    // - OR REPLACE 유무 허용, EDITIONABLE/NONEDITIONABLE 옵션 허용
+    // - 스키마 접두사 유무 허용, 스키마/객체 모두 quoted 식별자 허용("NAME")
+    // - TRIGGER 포함
+    // - 캡처 그룹 "full"에 스키마.객체 또는 객체 단일명이 담김 (따옴표는 이후 제거)
     private static final Pattern SQL_OBJECT_PATTERN = Pattern.compile(
-        "CREATE\\s+OR\\s+REPLACE\\s+(?:PACKAGE\\s+BODY|PACKAGE|PROCEDURE|FUNCTION)\\s+(?:[\\w$]+\\.)?([\\w$]+)", 
-        Pattern.CASE_INSENSITIVE
+        "(?is)\\bCREATE\\s+(?:OR\\s+REPLACE\\s+)?(?:EDITIONABLE\\s+|NONEDITIONABLE\\s+)?"
+      + "(?:PACKAGE\\s+BODY|PACKAGE|PROCEDURE|FUNCTION|TRIGGER)\\s+"
+      + "(?<full>(?:\"[^\"]+\"|[\\w$]+)(?:\\s*\\.\\s*(?:\"[^\"]+\"|[\\w$]+))?)"
     );
 
 
@@ -402,7 +406,12 @@ public class PlSqlFileParserService {
     public String extractSqlObjectName(String sqlContent) {
         Matcher matcher = SQL_OBJECT_PATTERN.matcher(sqlContent);
         if (matcher.find()) {
-            return matcher.group(1);  // 첫 번째 매칭된 객체 이름만 반환
+            String name = matcher.group("full");
+            if (name == null) return null;
+            name = name.replace("\"", "");
+            name = name.replaceAll("\\s*\\.\\s*", ".");
+            name = name.replaceAll("^.*\\.", ""); // 스키마 접두사 제거
+            return name;
         }
         return null;
     }

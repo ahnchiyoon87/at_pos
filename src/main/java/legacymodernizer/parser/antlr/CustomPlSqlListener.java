@@ -29,6 +29,10 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
     private void exitStatement(String statementType, int line) {
         Node node = nodeStack.pop();
         node.endLine = line;
+        // 동일 범위(시작/끝 라인 동일)의 중복 자식 제거
+        if (node.children != null && !node.children.isEmpty()) {
+            node.children.removeIf(child -> child.startLine == node.startLine && child.endLine == node.endLine);
+        }
         // System.out.println("Exit " + statementType + " Statement Line: " + line);
     }
 
@@ -130,15 +134,15 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
     @Override
     public void enterCreate_trigger(PlSqlParser.Create_triggerContext ctx) {
         enterStatement("TRIGGER", ctx.getStart().getLine());
-        enterStatement("HEADER", ctx.getStart().getLine());
+        enterStatement("SPEC", ctx.getStart().getLine());
     }
     @Override
     public void exitCreate_trigger(PlSqlParser.Create_triggerContext ctx) {
-        exitStatement("TRIGGER", ctx.getStop().getLine());
+        exitStatement("SPEC", ctx.getStop().getLine());
     }
     @Override
     public void enterTrigger_block(PlSqlParser.Trigger_blockContext ctx) {
-        exitStatement("HEADER", ctx.getStart().getLine() - 1);
+        exitStatement("SPEC", ctx.getStart().getLine() - 1);
         enterStatement("TRIGGER_BLOCK", ctx.getStart().getLine());
     }
     @Override
@@ -489,11 +493,11 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
     
     @Override
     public void enterOpen_for_statement(PlSqlParser.Open_for_statementContext ctx) {
-        enterStatement("OPEN_FOR", ctx.getStart().getLine());
+        enterStatement("OPEN_CURSOR", ctx.getStart().getLine());
     }
     @Override
     public void exitOpen_for_statement(PlSqlParser.Open_for_statementContext ctx) {
-        exitStatement("OPEN_FOR", ctx.getStop().getLine());
+        exitStatement("OPEN_CURSOR", ctx.getStop().getLine());
     }
     
     @Override
