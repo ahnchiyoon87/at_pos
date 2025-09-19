@@ -9,7 +9,7 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
     @SuppressWarnings("unused")
     private TokenStream tokens;
     private Stack<Node> nodeStack = new Stack<>();
-    private Node root = new Node("ROOT", 0, null); // 루트 노드
+    private Node root = new Node("FILE", 0, null); // 루트 노드
 
     public Node getRoot() {
         return root;
@@ -403,7 +403,10 @@ public class CustomPlSqlListener extends PlSqlParserBaseListener {
         if (!text.contains("BEGIN") && 
             ctx.getParent() instanceof PlSqlParser.BodyContext && 
             ctx.getParent().getParent() instanceof PlSqlParser.StatementContext) {
-            enterStatement("TRY", ctx.getStart().getLine()); // TRY 노드의 시작 라인을 -1 적용
+            // 옵션 B: TRY 시작 라인을 BEGIN 토큰 라인으로 고정
+            PlSqlParser.BodyContext bodyCtx = (PlSqlParser.BodyContext) ctx.getParent();
+            int beginLine = bodyCtx.BEGIN().getSymbol().getLine();
+            enterStatement("TRY", beginLine);
         }
     }
     

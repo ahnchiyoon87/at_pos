@@ -312,7 +312,6 @@ public class PlSqlFileParserService {
      * @throws IOException 파일 처리 중 발생하는 예외
      */
     public void parseAndSaveStructure(String fileName, String sessionUUID) throws IOException {
-        String plsqlDir = getTargetDirectory(sessionUUID, fileName);
         String analysisDir = getAnalysisDirectory(sessionUUID);
         String baseFileName = fileName.substring(0, fileName.lastIndexOf('.'));
         String outputPath = analysisDir + File.separator + baseFileName + ".json";
@@ -320,8 +319,38 @@ public class PlSqlFileParserService {
         // 분석 디렉토리가 없으면 생성
         createDirectoryIfNotExists(analysisDir);
 
+        // 실제 존재하는 파일 경로를 탐색 (src, ddl, sequence 순)
+        File candidate = null;
+        String[] searchDirs = { getTargetDirectory(sessionUUID, null),
+                                BASE_DIR + File.separator + sessionUUID + File.separator + DDL_DIR,
+                                BASE_DIR + File.separator + sessionUUID + File.separator + SEQ_DIR };
+        for (String dirPath : searchDirs) {
+            File f = new File(dirPath, fileName);
+            if (f.exists() && f.isFile()) {
+                candidate = f;
+                break;
+            }
+        }
+        if (candidate == null) {
+            // 마지막으로 대소문자 무시 검색 시도
+            outer:
+            for (String dirPath : searchDirs) {
+                File dir = new File(dirPath);
+                File[] files = dir.listFiles();
+                if (files == null) continue;
+                for (File f : files) {
+                    if (f.isFile() && f.getName().equalsIgnoreCase(fileName)) {
+                        candidate = f;
+                        break outer;
+                    }
+                }
+            }
+        }
+        if (candidate == null) {
+            throw new IOException("분석 대상 파일을 찾을 수 없음: " + fileName);
+        }
 
-        try (InputStream in = new FileInputStream(new File(plsqlDir, fileName))) {
+        try (InputStream in = new FileInputStream(candidate)) {
 
             // ANTLR 파서 설정
             CharStream s = CharStreams.fromStream(in);
