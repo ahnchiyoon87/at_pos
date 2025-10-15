@@ -227,56 +227,16 @@ cd Antlr-Server
 
 ### 📦 2단계: 의존성 설치
 
-**방법 A: Maven Wrapper 사용 (권장)**
-```bash
-./mvnw clean install
-```
-
-**방법 B: 시스템 Maven 사용**
+**방법: 시스템 Maven 사용**
 ```bash
 mvn clean install
 ```
 
-### ⚙️ 3단계: 환경 변수 설정 (선택)
-
-기본적으로 환경 변수 없이 실행 가능하지만, 데이터 저장 경로를 변경하려면:
-
-```bash
-# Windows
-set DOCKER_COMPOSE_CONTEXT=C:\custom\data\path
-
-# Linux/Mac
-export DOCKER_COMPOSE_CONTEXT=/custom/data/path
-```
-
-**⚠️ 경로 설정 규칙:**
-- 환경 변수 `DOCKER_COMPOSE_CONTEXT`가 설정되면 해당 경로 사용
-- 설정되지 않으면 `프로젝트 상위/data` 디렉터리 사용
-- 세션 디렉터리는 자동 생성됨
-
 ### 🎬 4단계: 서버 실행
 
-**개발 모드 실행:**
 ```bash
-
-./mvnw spring-boot:run
+mvn spring-boot:run
 ```
-
-
-**JAR 빌드 후 실행:**
-```bash
-
-./mvnw clean package -DskipTests
-java -jar target/parser-0.0.1-SNAPSHOT.jar
-```
-
-
-**실행 확인:**
-```bash
-curl http://localhost:8081/
-# 응답: OK
-```
-
 ---
 
 ## 📡 API 가이드
