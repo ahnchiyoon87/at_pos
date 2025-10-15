@@ -1,6 +1,5 @@
-package legacymodernizer.parser.antlr.plsql;
-
 // Generated from PlSqlLexer.g4 by ANTLR 4.13.1
+package legacymodernizer.parser.antlr.plsql;
 
 
 
