@@ -14,8 +14,8 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.List;
+import java.util.ArrayList;
 
 import org.antlr.v4.runtime.CharStream;
 import org.antlr.v4.runtime.CharStreams;
@@ -23,6 +23,7 @@ import org.antlr.v4.runtime.CommonTokenStream;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ParseTreeWalker;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import legacymodernizer.parser.antlr.CaseChangingCharStream;
 import legacymodernizer.parser.antlr.CustomPlSqlListener;
@@ -34,30 +35,23 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 public class PlSqlFileParserService {
 
-    // 기본 경로 상수
     private static final String BASE_DIR = System.getenv("DOCKER_COMPOSE_CONTEXT") != null ?
             System.getenv("DOCKER_COMPOSE_CONTEXT") :
             new File(System.getProperty("user.dir")).getParent() + File.separator + "data";
 
-
-    // 각 디렉터리 경로 상수
     private static final String PLSQL_DIR = "src";
     private static final String DDL_DIR = "ddl";
     private static final String SEQ_DIR = "sequence";
     private static final String ANALYSIS_DIR = "analysis";
 
-    // SQL 객체명 추출 정규식
-    private static final Pattern SQL_OBJECT_PATTERN = Pattern.compile(
-        "(?is)\\bCREATE\\s+(?:OR\\s+REPLACE\\s+)?(?:EDITIONABLE\\s+|NONEDITIONABLE\\s+)?"
-      + "(?:PACKAGE\\s+BODY|PACKAGE|PROCEDURE|FUNCTION|TRIGGER)\\s+"
-      + "(?<full>(?:\"[^\"]+\"|[\\w$]+)(?:\\s*\\.\\s*(?:\"[^\"]+\"|[\\w$]+))?)"
-    );
-
+    // ========================================
+    // 경로 유틸리티
+    // ========================================
 
     /**
-     * 전달된 문자열에서 경로를 제거한 베이스 파일명을 반환합니다.
-     * @param name 원본 파일명 또는 경로를 포함한 문자열 (null 허용)
-     * @return 경로를 제외한 파일명; name이 null이면 null
+     * 경로를 제거한 파일명 반환
+     * @param name 파일 경로 (null 허용)
+     * @return 파일명
      */
     private static String toBaseName(String name) {
         if (name == null) return null;
@@ -65,11 +59,22 @@ public class PlSqlFileParserService {
     }
 
     /**
-     * 프로젝트 루트 디렉터리 절대경로를 반환합니다.
-     * @param sessionUUID 세션 UUID (필수, 공백 불가)
-     * @param projectName 프로젝트명 (필수, 공백 불가)
-     * @return data/<session>/<project> 디렉터리의 절대경로 문자열
-     * @throws IOException 입력값이 비어있을 때
+     * 확장자를 제거한 파일명 반환
+     * @param name 파일명
+     * @return 확장자 제외 파일명
+     */
+    private static String toBaseNameWithoutExt(String name) {
+        String base = toBaseName(name);
+        if (base == null) return null;
+        int idx = base.lastIndexOf('.');
+        return idx > 0 ? base.substring(0, idx) : base;
+    }
+
+    /**
+     * 프로젝트 루트 디렉터리 경로 반환
+     * @param sessionUUID 세션 UUID
+     * @param projectName 프로젝트명
+     * @return 프로젝트 루트 절대경로
      */
     public String getProjectRootDirectory(String sessionUUID, String projectName) throws IOException {
         if (sessionUUID == null || sessionUUID.isBlank()) {
@@ -82,15 +87,14 @@ public class PlSqlFileParserService {
     }
 
     /**
-     * 파일명 힌트로 서브디렉터리(src/ddl/sequence)를 결정해 절대경로를 반환합니다.
+     * 파일명 기반 타겟 디렉터리 경로 반환 (src/ddl/sequence 자동 구분)
      * @param sessionUUID 세션 UUID
      * @param projectName 프로젝트명
-     * @param fileName 파일명 힌트(DDL/SEQ 포함 시 해당 폴더 선택). null 가능
-     * @return 대상 디렉터리 절대경로
-     * @throws IOException 프로젝트 루트 계산 실패 시
+     * @param fileName 파일명 (DDL/SEQ 포함 시 해당 폴더)
+     * @return 타겟 디렉터리 절대경로
      */
     public String getTargetDirectory(String sessionUUID, String projectName, String fileName) throws IOException {
-        String subDir = PLSQL_DIR; // 기본값
+        String subDir = PLSQL_DIR;
         if (fileName != null) {
             String upperFileName = fileName.toUpperCase();
             if (upperFileName.contains("DDL")) subDir = DDL_DIR;
@@ -99,132 +103,68 @@ public class PlSqlFileParserService {
         return getProjectRootDirectory(sessionUUID, projectName) + File.separator + subDir;
     }
 
-
     /**
-     * 프로젝트 공통 분석 디렉터리 절대경로를 반환합니다.
+     * 분석 결과 디렉터리 경로 반환
      * @param sessionUUID 세션 UUID
      * @param projectName 프로젝트명
-     * @return data/<session>/<project>/analysis 절대경로
-     * @throws IOException 프로젝트 루트 계산 실패 시
-     */
-    public String getAnalysisDirectory(String sessionUUID, String projectName) throws IOException {
-        return getProjectRootDirectory(sessionUUID, projectName) + File.separator + ANALYSIS_DIR;
-    }
-
-    /**
-     * 시스템별 분석 디렉터리 절대경로를 반환합니다.
-     * @param sessionUUID 세션 UUID
-     * @param projectName 프로젝트명
-     * @param systemName 시스템명 (null/빈값이면 공통 분석 디렉터리 반환)
-     * @return data/<session>/<project>/analysis[/<system>] 절대경로
-     * @throws IOException 프로젝트 루트 계산 실패 시
+     * @param systemName 시스템명 (null 가능)
+     * @return 분석 디렉터리 절대경로
      */
     public String getAnalysisDirectory(String sessionUUID, String projectName, String systemName) throws IOException {
+        String base = getProjectRootDirectory(sessionUUID, projectName) + File.separator + ANALYSIS_DIR;
         if (systemName == null || systemName.isEmpty()) {
-            return getAnalysisDirectory(sessionUUID, projectName);
+            return base;
         }
-        return getAnalysisDirectory(sessionUUID, projectName) + File.separator + systemName;
+        return base + File.separator + systemName;
     }
 
     /**
-     * 파일명으로부터 타입을 판별합니다.
-     * @param fileName 파일명 또는 경로
-     * @return PLSQL | DDL | SEQ
-     */
-    private String getFileType(String fileName) {
-        if (fileName == null) return "PLSQL";
-        String upperFileName = toBaseName(fileName).toUpperCase();
-        if (upperFileName.contains("DDL")) return "DDL";
-        // SEQ, SEQUENCE 둘 다 인식
-        if (upperFileName.contains("SEQUENCE") || upperFileName.contains("SEQ")) return "SEQ";
-        return "PLSQL";
-    }
-
-    /**
-     * 파일 정보 공통 맵을 생성합니다.
-     * @param fileName 파일명
-     * @param fileContent 파일 내용
-     * @param objectName SQL 객체명
-     * @param fileType 파일 타입
-     * @return 파일 정보를 담은 맵
-     */
-    private Map<String, String> createFileInfoMap(String fileName, String fileContent, String objectName, String fileType) {
-        Map<String, String> result = new HashMap<>();
-        result.put("fileName", fileName != null ? fileName : "");
-        result.put("fileContent", fileContent != null ? fileContent : "");
-        result.put("objectName", objectName != null ? objectName : "");
-        result.put("fileType", fileType != null ? fileType : "UNKNOWN");
-        return result;
-    }
-
-    /**
-     * 분석 파일 존재 여부를 포함한 파일 정보 맵을 생성합니다.
-     * @param fileName 파일명
-     * @param fileContent 파일 내용
-     * @param objectName SQL 객체명
-     * @param fileType 파일 타입
-     * @param analysisExists 분석 결과 파일 존재 여부
-     * @return 파일 정보를 담은 맵
-     */
-    private Map<String, String> createFileInfoMapWithAnalysis(String fileName, String fileContent, String objectName, String fileType, boolean analysisExists) {
-        Map<String, String> map = createFileInfoMap(fileName, fileContent, objectName, fileType);
-        map.put("analysisExists", String.valueOf(analysisExists));
-        return map;
-    }
-
-
-    /**
-     * 상위 디렉터리(ddl 또는 sequence)에 파일의 존재를 보장합니다. 다른 위치에서 발견되면 이동합니다.
+     * 파일이 속한 버킷 판별 (src/ddl/sequence)
      * @param sessionUUID 세션 UUID
      * @param projectName 프로젝트명
-     * @param topLevel 상위 디렉터리 이름 (ddl|sequence)
-     * @param fileName 대상 파일명(경로 허용)
-     * @throws IOException 파일 미존재 또는 부적절한 디렉터리 지정 등 실패 시
+     * @param file 파일 객체
+     * @return 버킷명
      */
-    public void ensureFileInTopLevelDir(String sessionUUID, String projectName, String topLevel, String fileName) throws IOException {
-        if (!DDL_DIR.equals(topLevel) && !SEQ_DIR.equals(topLevel)) throw new IOException("허용되지 않은 상위 디렉터리: " + topLevel);
-        if (fileName == null || fileName.trim().isEmpty()) {
-            throw new IOException("파일명이 비어있습니다");
-        }
-        String baseFileName = toBaseName(fileName);
-
-        String targetRoot = getProjectRootDirectory(sessionUUID, projectName) + File.separator + topLevel;
-        createDirectoryIfNotExists(targetRoot);
-
-        // 검색 우선순위: 해당 타입 디렉터리 -> src 전체 -> 다른 타입 디렉터리
-        File targetDir = new File(targetRoot);
-        File found = null;
-        // 1) 이미 그 위치에 있으면 ok
-        File direct = new File(targetDir, baseFileName);
-        if (direct.exists()) found = direct;
-        // 2) src 하위 전체에서 검색
-        if (found == null) {
-            String srcRoot = getTargetDirectory(sessionUUID, projectName, null);
-            found = findFileRecursivelyByNameIgnoreCase(new File(srcRoot), baseFileName);
-        }
-        // 3) 다른 타입 디렉토리에서 검색
-        if (found == null) {
-            String other = DDL_DIR.equals(topLevel) ? SEQ_DIR : DDL_DIR;
-            String otherRoot = getProjectRootDirectory(sessionUUID, projectName) + File.separator + other;
-            found = findFileRecursivelyByNameIgnoreCase(new File(otherRoot), baseFileName);
-        }
-
-        if (found == null) throw new IOException("파일을 찾지 못했습니다: " + fileName);
-
-        File desired = new File(targetDir, found.getName());
-        if (!found.getAbsolutePath().equals(desired.getAbsolutePath())) {
-            Files.move(found.toPath(), desired.toPath(), StandardCopyOption.REPLACE_EXISTING);
-            log.debug("      → 파일 이동: {} → {}", found.getName(), topLevel);
-        }
+    public String getBucketForFile(String sessionUUID, String projectName, File file) throws IOException {
+        String projectRoot = getProjectRootDirectory(sessionUUID, projectName);
+        Path project = new File(projectRoot).toPath().toRealPath();
+        Path path = file.toPath().toRealPath();
+        Path rel = project.relativize(path);
+        if (rel.getNameCount() == 0) return "unknown";
+        String first = rel.getName(0).toString();
+        if (DDL_DIR.equals(first)) return DDL_DIR;
+        if (SEQ_DIR.equals(first)) return SEQ_DIR;
+        if (PLSQL_DIR.equals(first)) return PLSQL_DIR;
+        return "unknown";
     }
 
+    /**
+     * src 하위 파일의 시스템명 추출
+     * @param sessionUUID 세션 UUID
+     * @param projectName 프로젝트명
+     * @param file 파일 객체
+     * @return 시스템명 (추출 불가 시 null)
+     */
+    public String detectSystemNameForFile(String sessionUUID, String projectName, File file) throws IOException {
+        Path srcPath = new File(getTargetDirectory(sessionUUID, projectName, null)).toPath().toRealPath();
+        Path filePath = file.toPath().toRealPath();
+        if (filePath.startsWith(srcPath)) {
+            Path rel = srcPath.relativize(filePath);
+            if (rel.getNameCount() >= 2) {
+                return rel.getName(0).toString();
+            }
+        }
+        return null;
+    }
 
+    // ========================================
+    // 파일 I/O
+    // ========================================
 
     /**
-     * 파일의 내용을 다양한 인코딩으로 시도하여 읽어옴
-     * @param file 읽을 파일 객체
-     * @return 파일의 내용 문자열
-     * @throws IOException 파일 읽기 실패시 발생
+     * 다양한 인코딩으로 파일 읽기 (UTF-8 → EUC-KR → MS949)
+     * @param file 파일 객체
+     * @return 파일 내용
      */
     public String readFileContent(File file) throws IOException {
         try {
@@ -245,28 +185,64 @@ public class PlSqlFileParserService {
     }
 
     /**
-     * PL/SQL 파일을 파싱하여 JSON 구조로 저장합니다. 시스템 힌트가 있으면 해당 시스템 분석 디렉터리에 저장합니다.
-     * @param fileName 분석 대상 파일명
+     * 버킷 디렉터리에 파일 저장 (src는 시스템 하위 가능)
      * @param sessionUUID 세션 UUID
      * @param projectName 프로젝트명
-     * @param systemNameHint 시스템명 힌트 (null 가능)
-     * @throws IOException 파일 탐색/저장/파싱 실패 시
+     * @param bucket 버킷명 (src/ddl/sequence)
+     * @param systemName 시스템명 (src일 때만 사용, null 가능)
+     * @param fileName 파일명
+     * @param inputStream 파일 스트림
+     * @return 저장된 파일 절대경로
      */
-    public void parseAndSaveStructure(String fileName, String sessionUUID, String projectName, String systemNameHint) throws IOException {
-
-        File candidate = findExistingSqlFile(sessionUUID, projectName, fileName);
-        if (candidate == null) {
-            throw new IOException("분석 대상 파일을 찾을 수 없음: " + fileName);
+    public String saveToBucketFromStream(String sessionUUID,
+                                         String projectName,
+                                         String bucket,
+                                         String systemName,
+                                         String fileName,
+                                         InputStream inputStream) throws IOException {
+        String baseFileName = toBaseName(fileName);
+        String projectRoot = getProjectRootDirectory(sessionUUID, projectName);
+        File targetDir = new File(projectRoot, bucket);
+        if (PLSQL_DIR.equals(bucket) && systemName != null && !systemName.isBlank()) {
+            targetDir = new File(targetDir, systemName);
         }
+        createDirectoryIfNotExists(targetDir.getAbsolutePath());
+        File out = new File(targetDir, baseFileName);
+        Files.copy(inputStream, out.toPath(), StandardCopyOption.REPLACE_EXISTING);
+        return out.getAbsolutePath();
+    }
 
-        String systemName = systemNameHint;
-        if (systemName == null) {
-            systemName = detectSystemNameForFile(sessionUUID, projectName, candidate);
+    /**
+     * 디렉터리 생성 (존재하지 않을 때만)
+     * @param path 디렉터리 경로
+     */
+    private void createDirectoryIfNotExists(String path) throws IOException {
+        Path dirPath = Paths.get(path);
+        if (!Files.exists(dirPath)) {
+            Files.createDirectories(dirPath);
+            log.debug("      → 디렉터리 생성: {}", dirPath.getFileName());
         }
+    }
 
-        String analysisDir = systemName != null ? getAnalysisDirectory(sessionUUID, projectName, systemName)
-                                                : getAnalysisDirectory(sessionUUID, projectName);
-        String baseFileName = fileName.substring(0, fileName.lastIndexOf('.'));
+    // ========================================
+    // 파싱 및 분석
+    // ========================================
+
+    /**
+     * ANTLR 파싱 후 분석 결과를 JSON으로 저장
+     * @param candidate 파싱 대상 파일
+     * @param displayFileName 표시용 파일명
+     * @param sessionUUID 세션 UUID
+     * @param projectName 프로젝트명
+     * @param systemName 시스템명
+     */
+    private void parseAndSaveStructure(File candidate,
+                                       String displayFileName,
+                                       String sessionUUID,
+                                       String projectName,
+                                       String systemName) throws IOException {
+        String analysisDir = getAnalysisDirectory(sessionUUID, projectName, systemName);
+        String baseFileName = toBaseNameWithoutExt(displayFileName != null ? displayFileName : candidate.getName());
         String outputPath = analysisDir + File.separator + baseFileName + ".json";
 
         createDirectoryIfNotExists(analysisDir);
@@ -290,76 +266,280 @@ public class PlSqlFileParserService {
     }
 
     /**
-     * 디렉터리가 없으면 생성합니다.
-     * @param path 생성할 디렉터리 경로(절대/상대)
-     * @throws IOException 생성 실패 시
-     */
-    private void createDirectoryIfNotExists(String path) throws IOException {
-        Path dirPath = Paths.get(path);
-        if (!Files.exists(dirPath)) {
-            Files.createDirectories(dirPath);
-            log.debug("      → 디렉터리 생성: {}", dirPath.getFileName());
-        }
-    }
-
-    /**
-     * 지정한 버킷(src/ddl/sequence) 및 선택적 시스템 하위에 파일 바이트를 저장합니다.
+     * 분석 결과 파일 존재 여부 확인
      * @param sessionUUID 세션 UUID
      * @param projectName 프로젝트명
-     * @param bucket 버킷 이름 (src|ddl|sequence)
-     * @param systemName 시스템명 (src일 때만 사용, null 가능)
-     * @param fileName 원본 파일명(경로 허용)
-     * @param bytes 저장할 파일 바이트
-     * @return 저장된 파일의 절대경로
-     * @throws IOException 경로 생성/쓰기 실패 시
+     * @param systemName 시스템명
+     * @param fileName 파일명
+     * @return 존재 여부
      */
-    public String saveBytesToBucket(String sessionUUID,
-                                    String projectName,
-                                    String bucket,
-                                    String systemName,
-                                    String fileName,
-                                    byte[] bytes) throws IOException {
-        String baseFileName = toBaseName(fileName);
-        String projectRoot = getProjectRootDirectory(sessionUUID, projectName);
-        File targetDir = new File(projectRoot, bucket);
-        if (PLSQL_DIR.equals(bucket) && systemName != null && !systemName.isBlank()) {
-            targetDir = new File(targetDir, systemName);
-        }
-        createDirectoryIfNotExists(targetDir.getAbsolutePath());
-        File out = new File(targetDir, baseFileName);
-        Files.write(out.toPath(), bytes);
-        return out.getAbsolutePath();
+    public boolean analysisExists(String sessionUUID, String projectName, String systemName, String fileName) throws IOException {
+        String analysisDir = getAnalysisDirectory(sessionUUID, projectName, systemName);
+        String base = toBaseName(fileName);
+        String baseNoExt = base.contains(".") ? base.substring(0, base.lastIndexOf('.')) : base;
+        File analysisFile = new File(analysisDir, baseNoExt + ".json");
+        return analysisFile.exists();
     }
 
     /**
-     * 하위 디렉터리를 재귀적으로 순회하여 대소문자 무시 파일명으로 파일을 찾습니다.
-     * @param root 시작 루트 디렉터리
-     * @param fileName 찾을 파일명
-     * @return 발견된 파일 객체, 없으면 null
+     * 필요 시 SP 파일 분석 실행
+     * @param sessionUUID 세션 UUID
+     * @param projectName 프로젝트명
+     * @param systemNameHint 시스템명 힌트
+     * @param located 파일 객체
+     * @return 분석 실행 여부
      */
-    private File findFileRecursivelyByNameIgnoreCase(File root, String fileName) {
-        if (root == null || !root.exists()) return null;
-        if (fileName == null) return null;
-        File[] list = root.listFiles();
-        if (list == null) return null;
-        for (File f : list) {
-            if (f.isDirectory()) {
-                File found = findFileRecursivelyByNameIgnoreCase(f, fileName);
-                if (found != null) return found;
-            } else if (f.getName().equalsIgnoreCase(fileName)) {
-                return f;
+    private boolean analyzeSpIfNeeded(String sessionUUID, String projectName, String systemNameHint, File located) throws IOException {
+        String bucket = getBucketForFile(sessionUUID, projectName, located);
+        if (!PLSQL_DIR.equals(bucket)) {
+            return false;
+        }
+
+        String systemName = systemNameHint != null ? systemNameHint : detectSystemNameForFile(sessionUUID, projectName, located);
+        boolean already = analysisExists(sessionUUID, projectName, systemName, located.getName());
+        if (!already) {
+            parseAndSaveStructure(located, located.getName(), sessionUUID, projectName, systemName);
+            return true;
+        }
+        return false;
+    }
+
+    // ========================================
+    // 업로드 처리
+    // ========================================
+
+    /**
+     * 메타데이터 기반 파일 업로드 처리
+     * - 시스템 SP: 존재하면 읽기, 없으면 업로드 파일 저장
+     * - DDL/SEQ: 업로드 파일 저장
+     * - 실패 시 RuntimeException 발생
+     * @param sessionUUID 세션 UUID
+     * @param projectName 프로젝트명
+     * @param systemsObj systems 배열
+     * @param ddlObj ddl 배열
+     * @param seqObj sequence 배열
+     * @param nameToFile 업로드 파일 맵 (파일명 소문자 → MultipartFile)
+     * @return {successFiles}
+     * @throws RuntimeException 업로드 처리 실패 시
+     */
+    public Map<String, Object> processUploadByMetadata(String sessionUUID,
+                                                       String projectName,
+                                                       Object systemsObj,
+                                                       Object ddlObj,
+                                                       Object seqObj,
+                                                       Map<String, MultipartFile> nameToFile) {
+        List<Map<String, String>> successFiles = new ArrayList<>();
+
+        Map<String, File> fileIndex = buildProjectFileIndex(sessionUUID, projectName);
+
+        if (systemsObj instanceof List<?>) {
+            for (Object sys : (List<?>) systemsObj) {
+                if (!(sys instanceof Map<?, ?>)) continue;
+                Map<?, ?> sysMap = (Map<?, ?>) sys;
+                String systemName = (String) sysMap.get("name");
+                Object spObj = sysMap.get("sp");
+                if (systemName == null || systemName.isBlank() || !(spObj instanceof List<?>)) continue;
+                for (Object sp : (List<?>) spObj) {
+                    if (!(sp instanceof String)) continue;
+                    String fileName = (String) sp;
+                    try {
+                        // 기존 파일 우선 사용
+                        File found = fileIndex.getOrDefault(toBaseName(fileName).toLowerCase(), null);
+                        if (found != null) {
+                            Map<String, String> ok = new HashMap<>();
+                            ok.put("system", systemName);
+                            ok.put("fileName", found.getName());
+                            ok.put("filePath", found.getAbsolutePath());
+                            ok.put("fileContent", readFileContent(found));
+                            ok.put("analysisExists", analysisExists(sessionUUID, projectName, systemName, found.getName()) ? "true" : "false");
+                            successFiles.add(ok);
+                            continue;
+                        }
+
+                        // 업로드 파일 저장
+                        MultipartFile mf = nameToFile != null ? nameToFile.getOrDefault(fileName.toLowerCase(), null) : null;
+                        if (mf == null || mf.isEmpty()) {
+                            throw new RuntimeException("파일이 존재하지 않으며 업로드 파일도 없습니다: system=" + systemName + ", file=" + fileName);
+                        }
+
+                        String savedPath = saveToBucketFromStream(sessionUUID, projectName, PLSQL_DIR, systemName, fileName, mf.getInputStream());
+                        Map<String, String> ok = new HashMap<>();
+                        ok.put("system", systemName);
+                        ok.put("fileName", fileName);
+                        ok.put("filePath", savedPath);
+                        ok.put("fileContent", readFileContent(new File(savedPath)));
+                        ok.put("analysisExists", analysisExists(sessionUUID, projectName, systemName, fileName) ? "true" : "false");
+                        successFiles.add(ok);
+                    } catch (Exception e) {
+                        throw new RuntimeException("업로드 처리 실패: system=" + systemName + ", file=" + fileName + " - " + e.getMessage(), e);
+                    }
+                }
             }
         }
-        return null;
+
+        saveBucketListFromMap(sessionUUID, projectName, DDL_DIR, ddlObj, nameToFile);
+        saveBucketListFromMap(sessionUUID, projectName, SEQ_DIR, seqObj, nameToFile);
+
+        return Map.of("successFiles", successFiles);
     }
 
     /**
-     * 프로젝트 내에서 실제 존재하는 SQL 파일을 src 재귀 → ddl → sequence 순서로 탐색합니다.
+     * 시스템별 SP 파싱 처리
+     * - 실패 시 RuntimeException 발생
      * @param sessionUUID 세션 UUID
      * @param projectName 프로젝트명
-     * @param fileName 파일명(경로 허용)
-     * @return 발견된 파일 객체, 없으면 null
-     * @throws IOException 경로 계산 실패 시
+     * @param systems systems 배열
+     * @return {successFiles}
+     * @throws RuntimeException 파싱 실패 시
+     */
+    public Map<String, Object> processParsingBySystems(String sessionUUID,
+                                                       String projectName,
+                                                       List<?> systems) {
+        List<Map<String, String>> successFiles = new ArrayList<>();
+
+        Map<String, File> fileIndex = buildProjectFileIndex(sessionUUID, projectName);
+
+        if (systems == null) return Map.of("successFiles", successFiles);
+
+        for (Object sys : systems) {
+            if (!(sys instanceof Map<?, ?>)) continue;
+            Map<?, ?> sysMap = (Map<?, ?>) sys;
+            String systemName = (String) sysMap.get("name");
+            Object spObj = sysMap.get("sp");
+            if (systemName == null || !(spObj instanceof List<?>)) continue;
+
+            List<?> spArr = (List<?>) spObj;
+            for (Object sp : spArr) {
+                if (!(sp instanceof String)) continue;
+                String fileName = (String) sp;
+                long start = System.currentTimeMillis();
+                File located;
+                try {
+                    located = locateFileByName(sessionUUID, projectName, fileName, fileIndex);
+                } catch (IOException io) {
+                    throw new RuntimeException("파일 검색 실패: system=" + systemName + ", file=" + fileName + " - " + io.getMessage(), io);
+                }
+                if (located != null) {
+                    try {
+                        analyzeSpIfNeeded(sessionUUID, projectName, systemName, located);
+                        Map<String, String> info = getFileInfoForFile(sessionUUID, projectName, located);
+                        Map<String, String> ok = new HashMap<>();
+                        ok.put("system", systemName);
+                        ok.put("fileName", info.getOrDefault("fileName", fileName));
+                        ok.put("fileContent", info.getOrDefault("fileContent", ""));
+                        ok.put("analysisExists", info.getOrDefault("analysisExists", "false"));
+                        successFiles.add(ok);
+                    } catch (Exception e) {
+                        throw new RuntimeException("파싱 실패: system=" + systemName + ", file=" + fileName + " - " + e.getMessage(), e);
+                    }
+                } else {
+                    throw new RuntimeException("파일을 찾을 수 없습니다: " + fileName);
+                }
+                long elapsed = System.currentTimeMillis() - start;
+                log.info("  {} ({}ms)", fileName, elapsed);
+            }
+        }
+
+        return Map.of("successFiles", successFiles);
+    }
+
+    /**
+     * DDL/SEQ 버킷에 파일 저장
+     * @param sessionUUID 세션 UUID
+     * @param projectName 프로젝트명
+     * @param bucket 버킷명
+     * @param listObj 파일명 배열
+     * @param nameToFile 업로드 파일 맵
+     */
+    private void saveBucketListFromMap(String sessionUUID,
+                                       String projectName,
+                                       String bucket,
+                                       Object listObj,
+                                       Map<String, MultipartFile> nameToFile) {
+        if (!(listObj instanceof List<?>) || nameToFile == null || nameToFile.isEmpty()) return;
+        for (Object o : (List<?>) listObj) {
+            if (!(o instanceof String)) continue;
+            String fileName = (String) o;
+            MultipartFile mf = nameToFile.getOrDefault(fileName.toLowerCase(), null);
+            if (mf == null || mf.isEmpty()) continue;
+            try {
+                saveToBucketFromStream(sessionUUID, projectName, bucket, null, fileName, mf.getInputStream());
+            } catch (Exception e) {
+                throw new RuntimeException("버킷 저장 중 오류: " + bucket + "/" + fileName + " - " + e.getMessage(), e);
+            }
+        }
+    }
+
+    // ========================================
+    // 파일 검색 및 인덱싱
+    // ========================================
+
+    /**
+     * 프로젝트 전체 파일 인덱스 생성 (src 재귀 + ddl + sequence)
+     * @param sessionUUID 세션 UUID
+     * @param projectName 프로젝트명
+     * @return 파일명(소문자) → File 맵
+     */
+    private Map<String, File> buildProjectFileIndex(String sessionUUID, String projectName) {
+        Map<String, File> index = new HashMap<>();
+        try {
+            String srcRoot = getTargetDirectory(sessionUUID, projectName, null);
+            File srcRootDir = new File(srcRoot);
+            if (srcRootDir.exists()) {
+                try (java.util.stream.Stream<Path> stream = Files.walk(srcRootDir.toPath())) {
+                    stream.filter(Files::isRegularFile)
+                          .map(Path::toFile)
+                          .forEach(f -> index.putIfAbsent(f.getName().toLowerCase(), f));
+                }
+            }
+            String projectRoot = getProjectRootDirectory(sessionUUID, projectName);
+            File ddlDir = new File(projectRoot, DDL_DIR);
+            if (ddlDir.exists()) {
+                File[] list = ddlDir.listFiles();
+                if (list != null) {
+                    for (File f : list) {
+                        if (f.isFile()) index.putIfAbsent(f.getName().toLowerCase(), f);
+                    }
+                }
+            }
+            File seqDir = new File(projectRoot, SEQ_DIR);
+            if (seqDir.exists()) {
+                File[] list = seqDir.listFiles();
+                if (list != null) {
+                    for (File f : list) {
+                        if (f.isFile()) index.putIfAbsent(f.getName().toLowerCase(), f);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("프로젝트 파일 인덱스 생성 실패: " + e.getMessage(), e);
+        }
+        return index;
+    }
+
+    /**
+     * 인덱스 기반 파일 검색 (fallback: 재귀 탐색)
+     * @param sessionUUID 세션 UUID
+     * @param projectName 프로젝트명
+     * @param fileName 파일명
+     * @param fileIndex 파일 인덱스
+     * @return 파일 객체 (없으면 null)
+     */
+    private File locateFileByName(String sessionUUID, String projectName, String fileName, Map<String, File> fileIndex) throws IOException {
+        String key = toBaseName(fileName);
+        if (key != null) {
+            File byIndex = fileIndex.getOrDefault(key.toLowerCase(), null);
+            if (byIndex != null) return byIndex;
+        }
+        return findExistingSqlFile(sessionUUID, projectName, fileName);
+    }
+
+    /**
+     * SQL 파일 재귀 검색 (src → ddl → sequence 순서)
+     * @param sessionUUID 세션 UUID
+     * @param projectName 프로젝트명
+     * @param fileName 파일명
+     * @return 파일 객체 (없으면 null)
      */
     private File findExistingSqlFile(String sessionUUID, String projectName, String fileName) throws IOException {
         String baseFileName = toBaseName(fileName);
@@ -377,147 +557,66 @@ public class PlSqlFileParserService {
     }
 
     /**
-     * 파일명이 가리키는 실제 파일 객체를 반환합니다.
-     * @param sessionUUID 세션 UUID
-     * @param projectName 프로젝트명
-     * @param fileName 파일명(경로 허용)
-     * @return 존재하는 파일 객체, 없으면 null
-     * @throws IOException 경로 계산 실패 시
+     * 디렉터리 재귀 검색 (대소문자 무시)
+     * @param root 시작 디렉터리
+     * @param fileName 파일명
+     * @return 파일 객체 (없으면 null)
      */
-    public File resolveExistingSqlFile(String sessionUUID, String projectName, String fileName) throws IOException {
-        String base = toBaseName(fileName);
-        return findExistingSqlFile(sessionUUID, projectName, base);
-    }
-
-    /**
-     * 파일의 프로젝트 상대 경로를 기준으로 버킷(src|ddl|sequence)을 판별합니다.
-     * @param sessionUUID 세션 UUID
-     * @param projectName 프로젝트명
-     * @param file 판별 대상 파일
-     * @return 버킷 이름 또는 unknown
-     * @throws IOException 경로 해석 실패 시
-     */
-    public String getBucketForFile(String sessionUUID, String projectName, File file) throws IOException {
-        String projectRoot = getProjectRootDirectory(sessionUUID, projectName);
-        Path project = new File(projectRoot).toPath().toRealPath();
-        Path path = file.toPath().toRealPath();
-        Path rel = project.relativize(path);
-        if (rel.getNameCount() == 0) return "unknown";
-        String first = rel.getName(0).toString();
-        if (DDL_DIR.equals(first)) return DDL_DIR;
-        if (SEQ_DIR.equals(first)) return SEQ_DIR;
-        if (PLSQL_DIR.equals(first)) return PLSQL_DIR;
-        return "unknown";
-    }
-
-    /**
-     * 파일 경로가 src/<system>/... 구조일 때 시스템명을 추출합니다.
-     * @param sessionUUID 세션 UUID
-     * @param projectName 프로젝트명
-     * @param file 대상 파일
-     * @return 시스템명 또는 null
-     * @throws IOException 경로 해석 실패 시
-     */
-    public String detectSystemNameForFile(String sessionUUID, String projectName, File file) throws IOException {
+    private File findFileRecursivelyByNameIgnoreCase(File root, String fileName) {
+        if (root == null || !root.exists() || fileName == null) return null;
         try {
-            Path srcPath = new File(getTargetDirectory(sessionUUID, projectName, null)).toPath().toRealPath();
-            Path filePath = file.toPath().toRealPath();
-            if (filePath.startsWith(srcPath)) {
-                Path rel = srcPath.relativize(filePath);
-                if (rel.getNameCount() >= 2) {
-                    return rel.getName(0).toString();
-                }
+            try (java.util.stream.Stream<Path> stream = Files.walk(root.toPath())) {
+                return stream
+                    .filter(Files::isRegularFile)
+                    .map(Path::toFile)
+                    .filter(f -> f.getName().equalsIgnoreCase(fileName))
+                    .findFirst()
+                    .orElse(null);
             }
-        } catch (Exception ignore) {}
-        return null;
-    }
-
-    /**
-     * 분석 결과 JSON 파일 존재 여부를 확인합니다.
-     * @param sessionUUID 세션 UUID
-     * @param projectName 프로젝트명
-     * @param systemName 시스템명 (null 가능)
-     * @param fileName 기준 파일명(확장자 기준으로 매칭)
-     * @return 존재하면 true, 없으면 false
-     * @throws IOException 경로 계산 실패 시
-     */
-    public boolean analysisExists(String sessionUUID, String projectName, String systemName, String fileName) throws IOException {
-        String analysisDir = systemName != null ? getAnalysisDirectory(sessionUUID, projectName, systemName)
-                                                : getAnalysisDirectory(sessionUUID, projectName);
-        String base = toBaseName(fileName);
-        String baseNoExt = base.contains(".") ? base.substring(0, base.lastIndexOf('.')) : base;
-        File analysisFile = new File(analysisDir, baseNoExt + ".json");
-        return analysisFile.exists();
-    }
-
-    /**
-     * src 버킷의 파일인 경우에만 분석을 수행하고, 이미 분석된 경우는 스킵합니다.
-     * @param sessionUUID 세션 UUID
-     * @param projectName 프로젝트명
-     * @param systemNameHint 시스템명 힌트 (null 가능)
-     * @param fileName 파일명(경로 허용)
-     * @return 실제 분석을 수행했으면 true, 이미 존재하거나 대상 외면 false
-     * @throws IOException 파일 탐색/판별 실패 시
-     */
-    public boolean analyzeSpIfNeeded(String sessionUUID, String projectName, String systemNameHint, String fileName) throws IOException {
-        File located = resolveExistingSqlFile(sessionUUID, projectName, fileName);
-        if (located == null) throw new IOException("분석 대상 파일을 찾지 못했습니다: " + fileName);
-        String bucket = getBucketForFile(sessionUUID, projectName, located);
-        if (!PLSQL_DIR.equals(bucket)) {
-            return false;
+        } catch (IOException e) {
+            throw new RuntimeException("디렉터리 검색 실패: " + root.getAbsolutePath() + " - " + e.getMessage(), e);
         }
-
-        String systemName = systemNameHint != null ? systemNameHint : detectSystemNameForFile(sessionUUID, projectName, located);
-        boolean already = analysisExists(sessionUUID, projectName, systemName, fileName);
-        if (!already) {
-            parseAndSaveStructure(fileName, sessionUUID, projectName, systemName);
-            return true;
-        }
-        return false;
     }
 
-
     /**
-     * 파일명을 기준으로 실제 파일을 찾아 내용/객체명/타입 및 분석 존재 여부를 반환합니다.
+     * 파일명으로 파일 정보 조회
      * @param sessionUUID 세션 UUID
      * @param projectName 프로젝트명
-     * @param fileName 파일명(경로 허용)
-     * @return 파일 정보 맵 {fileName, fileContent, objectName, fileType, analysisExists}
-     * @throws IOException 파일을 찾지 못한 경우
+     * @param fileName 파일명
+     * @return {fileName, fileContent, analysisExists}
      */
     public Map<String, String> getFileInfoByName(String sessionUUID, String projectName, String fileName) throws IOException {
         File file = findExistingSqlFile(sessionUUID, projectName, fileName);
         if (file == null) throw new IOException("파일을 찾을 수 없습니다: " + fileName);
-
-        String fileContent = readFileContent(file);
-        String objectName = extractSqlObjectName(fileContent);
-        String fileType = getFileType(file.getName());
-
-        String systemName = detectSystemNameForFile(sessionUUID, projectName, file);
-        String analysisDir = systemName != null ? getAnalysisDirectory(sessionUUID, projectName, systemName)
-                                               : getAnalysisDirectory(sessionUUID, projectName);
-        String baseFileName = file.getName().substring(0, file.getName().lastIndexOf('.'));
-        File analysisFile = new File(analysisDir, baseFileName + ".json");
-        boolean analysisExists = analysisFile.exists();
-
-        return createFileInfoMapWithAnalysis(file.getName(), fileContent, objectName, fileType, analysisExists);
+        return getFileInfoForFile(sessionUUID, projectName, file);
     }
-    
+
     /**
-     * SQL 내용에서 객체 이름을 추출
-     * @param sqlContent SQL 파일 내용
-     * @return 추출된 객체 이름, 매칭되지 않으면 null
+     * 파일 객체로 파일 정보 생성
+     * @param sessionUUID 세션 UUID
+     * @param projectName 프로젝트명
+     * @param file 파일 객체
+     * @return {fileName, fileContent, analysisExists}
      */
-    public String extractSqlObjectName(String sqlContent) {
-        Matcher matcher = SQL_OBJECT_PATTERN.matcher(sqlContent);
-        if (matcher.find()) {
-            String name = matcher.group("full");
-            if (name == null) return null;
-            name = name.replace("\"", "");
-            name = name.replaceAll("\\s*\\.\\s*", ".");
-            name = name.replaceAll("^.*\\.", ""); // 스키마 접두사 제거
-            return name;
-        }
-        return null;
+    private Map<String, String> getFileInfoForFile(String sessionUUID, String projectName, File file) throws IOException {
+        String fileContent = readFileContent(file);
+        String systemName = detectSystemNameForFile(sessionUUID, projectName, file);
+        boolean exists = analysisExists(sessionUUID, projectName, systemName, file.getName());
+        return makeFileInfo(file.getName(), fileContent, exists);
+    }
+
+    /**
+     * 파일 정보 맵 생성
+     * @param fileName 파일명
+     * @param fileContent 파일 내용
+     * @param analysisExists 분석 존재 여부
+     * @return 파일 정보 맵
+     */
+    private Map<String, String> makeFileInfo(String fileName, String fileContent, boolean analysisExists) {
+        Map<String, String> map = new HashMap<>();
+        map.put("fileName", fileName != null ? fileName : "");
+        map.put("fileContent", fileContent != null ? fileContent : "");
+        map.put("analysisExists", String.valueOf(analysisExists));
+        return map;
     }
 }

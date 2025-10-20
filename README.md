@@ -50,69 +50,80 @@ PL/SQL 코드를 분석하고 변환하기 위해서는 먼저 **코드의 구�
 
 ### 1️⃣ **파일 업로드 (File Upload)**
 - PL/SQL 파일(`.sql`)을 세션별로 안전하게 저장
-- 파일명 기반 자동 분류 (PL/SQL, DDL, Sequence)
+- **기존 파일 우선 사용** - 이미 있으면 재사용, 없으면 저장
+- 파일명 기반 자동 분류 (SP/DDL/Sequence)
 - 다중 파일 동시 업로드 지원
 - 자동 인코딩 감지 (UTF-8, EUC-KR, MS949)
+- testmode 지원 (기존 파일만 조회 가능)
+- **전체 성공/실패 방식** - 하나라도 실패하면 전체 실패
 
 ### 2️⃣ **구문 파싱 (Parsing)**
-- ANTLR 기반 정확한 PL/SQL 파싱
+- ANTLR 4.13.1 기반 정확한 PL/SQL 파싱
 - AST(추상 구문 트리) 생성
 - 구문 노드별 시작/종료 라인 추출
 - JSON 형식으로 결과 저장
+- **파일 인덱싱** - 빠른 파일 검색 성능
+- **전체 성공/실패 방식** - 하나라도 실패하면 전체 실패
 
 ### 3️⃣ **세션 관리 (Session Management)**
 - 사용자별 독립적인 작업 공간
 - 세션 UUID 기반 파일 격리
-- 분석 결과 캐싱 및 재사용
+- 프로젝트별 디렉터리 구조
+- 분석 결과 자동 캐싱 및 재사용
 
-### 4️⃣ **테스트 샘플 처리**
-- 프로시저명으로 파일 자동 검색
-- 분석 결과 자동 확인 및 생성
+### 4️⃣ **스마트 파일 검색**
+- 프로젝트 전체 파일 인덱스 생성
+- 인덱스 기반 빠른 검색
+- fallback 재귀 탐색 지원
 - 대소문자 무시 검색
 
 ---
 
 ## 🔍 동작 원리
 
-ANTLR Parser Server는 크게 **3단계**로 동작합니다:
+ANTLR Parser Server는 크게 **2단계**로 동작합니다:
 
 ### 📤 1단계: 파일 업로드 (File Upload)
 
 ```
-Frontend → ANTLR 서버 → 파일 저장 → 응답
+Frontend → ANTLR 서버 → 파일 검색/저장 → 응답
 ```
 
 **무엇을 하나요?**
-1. 🖥️ **파일 수신**: Frontend에서 PL/SQL 파일 업로드 (multipart/form-data)
+1. 🖥️ **파일 수신**: Frontend에서 메타데이터 + 파일 업로드 (multipart/form-data)
 2. 📁 **메타데이터 파싱**: 시스템별 파일 목록, DDL, Sequence 정보 추출
-3. 💾 **파일 저장**: 
-   - SP 파일: `data/{session}/{project}/src/{system}/` 디렉터리에 저장
-   - DDL 파일: `data/{session}/{project}/ddl/` 디렉터리에 저장
-   - Sequence 파일: `data/{session}/{project}/sequence/` 디렉터리에 저장
-4. 🔍 **인코딩 감지**: UTF-8 → EUC-KR → MS949 순으로 시도
-5. 📊 **파일 정리**: DDL/Sequence 파일을 최상위 디렉터리로 이동 보장
-6. ✅ **완료 응답**: SP 파일 정보 반환 (파일명, 경로, 내용 포함)
+3. 🔍 **파일 인덱스 생성**: 프로젝트 전체 파일을 한 번에 스캔하여 인덱스 구축
+4. 💾 **파일 처리** (SP 파일 우선순위):
+   - ✅ **기존 파일 우선**: 이미 저장된 파일이 있으면 그대로 사용
+   - 📤 **업로드 저장**: 없으면 업로드 파일을 `src/{system}/`에 저장
+   - 📦 **DDL/SEQ 저장**: `ddl/`, `sequence/` 디렉터리에 저장
+5. 🔍 **인코딩 감지**: UTF-8 → EUC-KR → MS949 순으로 자동 감지
+6. ✅ **완료 응답**: SP 파일 정보만 반환 (파일명, 경로, 내용, 분석 존재 여부)
 
 **⚠️ 중요:**
+- **testmode=true**: 업로드 없이 기존 파일만 조회 (테스트용)
+- **testmode=false**: 업로드 파일 필수, 없으면 저장
 - 응답에는 SP 파일 정보만 포함 (DDL/Sequence 제외)
 - 모든 파일 처리 API는 `Session-UUID` 헤더 필수
 
 ### 🔍 2단계: 구문 파싱 (Parsing)
 
 ```
-Frontend → ANTLR 서버 → 파일 읽기 → ANTLR 파싱 → AST 생성 → JSON 저장
+Frontend → ANTLR 서버 → 파일 검색 → ANTLR 파싱 → AST 생성 → JSON 저장
 ```
 
 **무엇을 하나요?**
 1. 📤 **파싱 요청**: Frontend가 시스템별 SP 파일 목록과 함께 요청
-2. 📂 **파일 로딩**: 저장된 PL/SQL 파일 읽기 (SP만 대상)
-3. ✅ **분석 확인**: 이미 분석된 파일은 스킵
-4. 🔧 **Lexer 실행**: `PlSqlLexer`가 토큰 스트림 생성
-5. 🌳 **Parser 실행**: `PlSqlParser`가 구문 트리 생성
-6. 👂 **Listener 순회**: `CustomPlSqlListener`가 트리 순회하며 노드 수집
-7. 📊 **AST 구성**: 구문 타입과 라인 번호가 포함된 트리 구조 생성
-8. 💾 **JSON 저장**: `analysis/{system}/{파일명}.json`에 결과 저장
-9. ✅ **완료 응답**: 시스템별 파일 정보 반환 (객체명, 내용, 분석 상태 포함)
+2. 🔍 **파일 인덱스 생성**: 프로젝트 전체 파일 인덱스 구축
+3. 📂 **파일 검색**: 인덱스에서 파일 우선 검색, 없으면 재귀 탐색
+4. ✅ **분석 확인**: 이미 분석된 파일은 자동 스킵
+5. 🔧 **ANTLR 파싱** (분석 필요 시):
+   - **Lexer 실행**: `PlSqlLexer`가 토큰 스트림 생성
+   - **Parser 실행**: `PlSqlParser`가 구문 트리 생성
+   - **Listener 순회**: `CustomPlSqlListener`가 트리 순회하며 노드 수집
+6. 📊 **AST 구성**: 구문 타입과 라인 번호가 포함된 트리 구조 생성
+7. 💾 **JSON 저장**: `analysis/{system}/{파일명}.json`에 결과 저장
+8. ✅ **완료 응답**: 시스템별 파일 정보 반환 (파일명, 내용, 분석 상태)
 
 **왜 AST가 필요한가요?**
 
@@ -120,19 +131,6 @@ AST(추상 구문 트리)는 코드의 문법 구조를 계층적으로 표현�
 이를 통해 **코드 분석 도구**가 각 구문의 위치와 관계를 정확히 파악하여, 
 의미 분석이나 코드 변환을 수행할 수 있습니다.
 
-### 📝 3단계: 테스트 샘플 처리 (Test Sample)
-
-```
-Frontend → ANTLR 서버 → 시스템별 파일 검색 → 분석 확인/실행 → 결과 반환
-```
-
-**무엇을 하나요?**
-1. 📤 **업로드 요청**: Frontend가 시스템별 파일 목록 전송
-2. 🔍 **파일 검색**: `src/{system}/` 디렉터리에서 파일 검색
-3. 📊 **분석 확인**: `analysis/{system}/` 디렉터리에서 JSON 파일 존재 확인
-4. 🔧 **분석 실행**: SP 파일이고 분석 결과가 없으면 즉시 파싱 수행
-5. 📄 **정보 수집**: 파일 내용, 객체명, 타입, 분석 존재 여부 등 수집
-6. ✅ **결과 반환**: 시스템별 파일 정보와 분석 상태 반환
 
 ---
 
@@ -145,40 +143,33 @@ flowchart TB
     subgraph "1️⃣ 파일 업로드"
         A1[🖥️ Frontend<br/>metadata + files] -->|1. POST /fileUpload| A2[⚡ ANTLR 서버]
         A2 -->|2. metadata 파싱| A3[📋 시스템별 분류]
-        A3 -->|3. 시스템별 저장| A4[💾 src/system/<br/>ddl/<br/>sequence/]
-        A4 -->|4. 파일 정리| A5[📊 위치 보장]
-        A5 -->|5. SP 정보 응답| A1
+        A3 -->|3. 파일 인덱스 생성| A4[🔍 프로젝트 스캔]
+        A4 --> A5{기존 파일<br/>존재?}
+        A5 -->|있음| A6[📄 기존 파일 읽기]
+        A5 -->|없음| A7[💾 업로드 파일 저장<br/>src/system/]
+        A6 --> A8[📊 SP 정보 응답]
+        A7 --> A8
+        A8 -->|응답| A1
     end
     
     subgraph "2️⃣ 구문 파싱"
         B1[🖥️ Frontend<br/>시스템별 SP 목록] -->|POST /parsing| B2[⚡ ANTLR 서버]
-        B2 --> B3[📖 파일 로딩<br/>시스템별]
-        B3 --> B4{분석<br/>존재?}
-        B4 -->|없음| B5[🔧 ANTLR 파싱]
-        B4 -->|있음| B8[⏩ 스킵]
-        B5 --> B6[🌳 AST 생성]
-        B6 --> B7[💾 JSON 저장<br/>analysis/system/]
-        B7 --> B9[📊 파일 정보 수집]
-        B8 --> B9
-        B9 -->|응답| B1
-    end
-    
-    subgraph "3️⃣ 테스트 샘플"
-        C1[🖥️ Frontend<br/>시스템별 파일 목록] -->|POST /testsample| C2[⚡ ANTLR 서버]
-        C2 --> C3[🔍 파일 검색<br/>src/system/]
-        C3 --> C4{SP 파일 &&<br/>분석 없음?}
-        C4 -->|예| C5[🔧 파싱 실행]
-        C4 -->|아니오| C6[📄 정보 수집]
-        C5 --> C6
-        C6 -->|응답| C1
+        B2 --> B3[🔍 파일 인덱스 생성]
+        B3 --> B4[📂 파일 검색]
+        B4 --> B5{분석<br/>존재?}
+        B5 -->|없음| B6[🔧 ANTLR 파싱]
+        B5 -->|있음| B9[⏩ 스킵]
+        B6 --> B7[🌳 AST 생성]
+        B7 --> B8[💾 JSON 저장<br/>analysis/system/]
+        B8 --> B10[📊 파일 정보 수집]
+        B9 --> B10
+        B10 -->|응답| B1
     end
     
     A1 -.->|완료 후| B1
-    B1 -.->|완료 후| C1
     
     style A1 fill:#e3f2fd
     style B1 fill:#fff3e0
-    style C1 fill:#e8f5e9
 ```
 
 ### 외부 서비스 연동
@@ -191,7 +182,6 @@ flowchart LR
     
     FE -->|① 파일 업로드| ANTLR
     FE -->|② 파싱 요청| ANTLR
-    FE -->|③ 샘플 조회| ANTLR
     
     ANTLR <--> FS
     
@@ -209,9 +199,8 @@ flowchart LR
 | 📁 **File System** | 파일 저장소 (원본 코드, AST JSON) | 로컬 디스크 |
 
 **주요 데이터 흐름:**
-- **① 업로드**: Frontend → ANTLR ↔ File System (파일 저장)
+- **① 업로드**: Frontend → ANTLR ↔ File System (기존 파일 우선, 없으면 저장)
 - **② 파싱**: Frontend → ANTLR ↔ File System (파일 읽기 → AST 저장)
-- **③ 샘플**: Frontend → ANTLR ↔ File System (파일 검색 및 분석)
 
 ---
 
@@ -314,7 +303,7 @@ curl -X POST "http://localhost:8081/fileUpload" \
 | 파라미터 | 타입 | 필수 | 설명 |
 |---------|------|------|------|
 | `metadata` | JSON String | ✅ | 업로드 메타데이터 (아래 참조) |
-| `files` | MultipartFile[] | ✅ | 업로드할 파일 배열 |
+| `files` | MultipartFile[] | ❌ | 업로드할 파일 배열 (testmode=true일 때 선택) |
 
 **metadata 구조:**
 
@@ -327,9 +316,25 @@ curl -X POST "http://localhost:8081/fileUpload" \
     {"name": "SystemB", "sp": ["파일명3.sql"]}
   ],
   "ddl": ["DDL_파일명.sql"],
-  "sequence": ["SEQ_파일명.sql"]
+  "sequence": ["SEQ_파일명.sql"],
+  "testmode": false
 }
 ```
+
+**metadata 필드 설명:**
+
+| 필드 | 타입 | 필수 | 설명 |
+|-----|------|------|------|
+| `dbms` | String | ✅ | 데이터베이스 종류 (oracle 등) |
+| `projectName` | String | ✅ | 프로젝트명 |
+| `systems` | Array | ✅ | 시스템별 SP 파일 목록 |
+| `ddl` | Array | ❌ | DDL 파일 목록 |
+| `sequence` | Array | ❌ | Sequence 파일 목록 |
+| `testmode` | Boolean | ❌ | true: 기존 파일만 조회, false: 업로드 파일 저장 (기본값: false) |
+
+**testmode 동작:**
+- **testmode=true**: 업로드 파일 없이 기존 파일만 조회 (테스트용)
+- **testmode=false**: 기존 파일 우선, 없으면 업로드 파일 저장
 
 **응답 형식 (성공):**
 
@@ -338,37 +343,34 @@ curl -X POST "http://localhost:8081/fileUpload" \
   "dbms": "oracle",
   "successFiles": [
     {
+      "system": "SystemA",
       "fileName": "PROC_A.sql",
       "filePath": "/path/to/data/session/project/src/SystemA/PROC_A.sql",
-      "fileContent": "CREATE OR REPLACE PROCEDURE PROC_A..."
+      "fileContent": "CREATE OR REPLACE PROCEDURE PROC_A...",
+      "analysisExists": "false"
     },
     {
+      "system": "SystemA",
       "fileName": "FUNC_A.sql",
       "filePath": "/path/to/data/session/project/src/SystemA/FUNC_A.sql",
-      "fileContent": "CREATE OR REPLACE FUNCTION FUNC_A..."
+      "fileContent": "CREATE OR REPLACE FUNCTION FUNC_A...",
+      "analysisExists": "true"
     }
   ]
 }
 ```
 
-**응답 형식 (일부 실패):**
+**응답 형식 (실패):**
+
+실패 시 HTTP 에러 응답 (400/500)이 반환됩니다.
 
 ```json
 {
-  "dbms": "oracle",
-  "successFiles": [
-    {
-      "fileName": "PROC_A.sql",
-      "filePath": "/path/to/...",
-      "fileContent": "..."
-    }
-  ],
-  "failedFiles": [
-    {
-      "fileName": "bad_file.sql",
-      "error": "파일 업로드 및 저장 실패: IOException"
-    }
-  ]
+  "timestamp": "2024-01-01T10:00:00.000+00:00",
+  "status": 500,
+  "error": "Internal Server Error",
+  "message": "업로드 처리 실패: system=SystemB, file=bad_file.sql - 파일이 존재하지 않으며 업로드 파일도 없습니다",
+  "path": "/fileUpload"
 }
 ```
 
@@ -379,6 +381,12 @@ curl -X POST "http://localhost:8081/fileUpload" \
 | systems.sp[] | `{BASE_DIR}/{session}/{project}/src/{system}/` | 시스템별 SP 파일 |
 | ddl[] | `{BASE_DIR}/{session}/{project}/ddl/` | DDL 파일 |
 | sequence[] | `{BASE_DIR}/{session}/{project}/sequence/` | Sequence 파일 |
+
+**에러 처리:**
+- **전체 성공/실패 방식**: 모든 파일 처리 성공 시에만 200 OK 반환
+- 하나라도 실패하면 즉시 중단하고 HTTP 에러 응답 반환
+- testmode=false일 때 업로드 파일이 없으면 에러 발생
+- 부분 성공은 지원하지 않음 (트랜잭션 방식)
 
 ---
 
@@ -426,45 +434,30 @@ curl -X POST "http://localhost:8081/parsing" \
     {
       "system": "SystemA",
       "fileName": "PROC_A.sql",
-      "objectName": "PROC_A",
       "fileContent": "CREATE OR REPLACE PROCEDURE PROC_A...",
-      "fileType": "PLSQL",
       "analysisExists": "true"
     },
     {
       "system": "SystemA",
       "fileName": "FUNC_A.sql",
-      "objectName": "FUNC_A",
       "fileContent": "CREATE OR REPLACE FUNCTION FUNC_A...",
-      "fileType": "PLSQL",
       "analysisExists": "true"
     }
   ]
 }
 ```
 
-**응답 형식 (일부 실패):**
+**응답 형식 (실패):**
+
+실패 시 HTTP 에러 응답 (400/500)이 반환됩니다.
 
 ```json
 {
-  "dbms": "oracle",
-  "successFiles": [
-    {
-      "system": "SystemA",
-      "fileName": "PROC_A.sql",
-      "objectName": "PROC_A",
-      "fileContent": "...",
-      "fileType": "PLSQL",
-      "analysisExists": "true"
-    }
-  ],
-  "failedFiles": [
-    {
-      "system": "SystemB",
-      "fileName": "bad_file.sql",
-      "error": "파일을 찾을 수 없습니다"
-    }
-  ]
+  "timestamp": "2024-01-01T10:00:00.000+00:00",
+  "status": 500,
+  "error": "Internal Server Error",
+  "message": "파일을 찾을 수 없습니다: bad_file.sql",
+  "path": "/parsing"
 }
 ```
 
@@ -481,88 +474,15 @@ curl -X POST "http://localhost:8081/parsing" \
 - 이미 분석된 파일은 자동으로 스킵되어 재분석하지 않습니다
 - SP 파일만 분석 대상이며, DDL/Sequence 파일은 제외됩니다
 
----
-
-### 📝 API 3: 테스트 샘플 처리
-
-**엔드포인트:** `POST /testsample`
-
-**역할:** 시스템별 파일을 검색하고, 분석 결과가 없으면 자동으로 파싱을 수행합니다.
-
-**요청 예시:**
-
-```bash
-curl -X POST "http://localhost:8081/testsample" \
-  -H "Content-Type: application/json" \
-  -H "Session-UUID: my-session-123" \
-  -d '{
-    "dbms": "oracle",
-    "projectName": "MyProject",
-    "systems": [
-      {"name": "SystemA", "sp": ["PROC_A.sql", "FUNC_A.sql"]},
-      {"name": "SystemB", "sp": ["PROC_B.sql"]}
-    ]
-  }'
-```
-
-**요청 바디:**
-
-```json
-{
-  "dbms": "oracle",
-  "projectName": "MyProject",
-  "systems": [
-    {"name": "시스템명1", "sp": ["파일명1.sql", "파일명2.sql"]},
-    {"name": "시스템명2", "sp": ["파일명3.sql"]}
-  ]
-}
-```
-
-**응답 형식:**
-
-```json
-{
-  "dbms": "oracle",
-  "successFiles": [
-    {
-      "system": "SystemA",
-      "fileName": "PROC_A.sql",
-      "objectName": "PROC_A",
-      "fileContent": "CREATE OR REPLACE PROCEDURE PROC_A...",
-      "fileType": "PLSQL",
-      "analysisExists": "true"
-    },
-    {
-      "system": "SystemA",
-      "fileName": "FUNC_A.sql",
-      "objectName": "FUNC_A",
-      "fileContent": "CREATE OR REPLACE FUNCTION FUNC_A...",
-      "fileType": "PLSQL",
-      "analysisExists": "false"
-    }
-  ]
-}
-```
-
-**응답 필드 설명:**
-
-| 필드 | 타입 | 설명 |
-|-----|------|------|
-| `system` | String | 시스템명 |
-| `fileName` | String | 실제 파일명 |
-| `objectName` | String | 추출된 SQL 객체 이름 |
-| `fileContent` | String | 파일 전체 내용 |
-| `fileType` | String | 파일 타입 (PLSQL/DDL/SEQ) |
-| `analysisExists` | String | 분석 결과 존재 여부 ("true"/"false") |
-
-**동작 방식:**
-
-1. `src/{system}/` 디렉터리에서 파일 검색
-2. `analysis/{system}/{파일명}.json` 파일 존재 확인
-3. SP 파일이고 분석 결과가 없으면 즉시 파싱 수행
-4. 파일 정보와 분석 상태 반환
+**에러 처리:**
+- **전체 성공/실패 방식**: 모든 파일 파싱 성공 시에만 200 OK 반환
+- 하나라도 실패하면 즉시 중단하고 HTTP 에러 응답 반환
+- 파일을 찾을 수 없거나 파싱 오류 시 500 에러 반환
+- 부분 성공은 지원하지 않음 (트랜잭션 방식)
 
 ---
+
+<!-- (삭제됨) API 3: 테스트 샘플 처리 - 요구사항에 따라 제거됨 -->
 
 ## 📁 데이터 구조
 
@@ -694,7 +614,7 @@ Antlr-Server/
 │   │   │   │   └── FileUploadController.java       # 파일 업로드/파싱/샘플 API
 │   │   │   │
 │   │   │   ├── 📁 service/                         # 비즈니스 로직
-│   │   │   │   └── PlSqlFileParserService.java     # 파일 저장/파싱/객체명 추출
+│   │   │   │   └── PlSqlFileParserService.java     # 파일 저장/파싱
 │   │   │   │
 │   │   │   ├── 📁 antlr/                           # ANTLR 관련 클래스
 │   │   │   │   ├── CustomPlSqlListener.java        # 구문 트리 리스너
@@ -726,29 +646,42 @@ Antlr-Server/
 API 엔드포인트를 정의하고 요청을 처리합니다.
 
 **주요 메서드:**
-- `fileUpload()`: `/fileUpload` - 시스템별 파일 업로드 처리 (multipart/form-data)
+- `fileUpload()`: `/fileUpload` - 파일 업로드 처리 (testmode 지원)
 - `analysisContext()`: `/parsing` - 시스템별 SP 파싱 실행
-- `testSample()`: `/testsample` - 시스템별 샘플 조회 및 파싱
-- `resolveUploaded()`: 업로드된 파일 맵에서 파일 검색
-- `saveToBucketAndMaybeRespond()`: 지정 버킷에 파일 저장
-- `saveSimpleBucketList()`: DDL/Sequence 버킷 리스트 저장
-- `analyzeSystems()`: 시스템별 파일 분석 실행
 
 #### ⚙️ `service/PlSqlFileParserService.java`
-파일 저장, 파싱, 객체명 추출의 핵심 로직을 구현합니다.
+파일 저장, 파싱, 검색의 핵심 로직을 5개 섹션으로 구현합니다.
 
-**주요 메서드:**
-- `saveBytesToBucket()`: 지정 버킷(src/ddl/sequence)에 파일 바이트 저장
-- `parseAndSaveStructure()`: ANTLR 파싱 및 시스템별 JSON 저장
-- `analyzeSpIfNeeded()`: SP 파일만 분석, 이미 분석된 경우 스킵
-- `getFileInfoByName()`: 파일명으로 정보 조회 (내용, 객체명, 분석 상태)
-- `ensureFileInTopLevelDir()`: DDL/Sequence 파일 위치 보장
-- `readFileContent()`: 다중 인코딩 자동 감지 읽기
-- `extractSqlObjectName()`: 정규식 기반 객체명 추출
-- `getProjectRootDirectory()`: 프로젝트 루트 디렉터리 경로 반환
-- `getAnalysisDirectory()`: 시스템별 분석 디렉터리 경로 반환
-- `detectSystemNameForFile()`: 파일 경로에서 시스템명 추출
-- `analysisExists()`: 분석 결과 JSON 파일 존재 여부 확인
+**📂 경로 유틸리티:**
+- `toBaseName()`: 경로에서 파일명 추출
+- `toBaseNameWithoutExt()`: 확장자 제거
+- `getProjectRootDirectory()`: 프로젝트 루트 경로 반환
+- `getTargetDirectory()`: 파일명 기반 타겟 디렉터리 반환 (src/ddl/sequence)
+- `getAnalysisDirectory()`: 분석 디렉터리 경로 반환
+- `getBucketForFile()`: 파일이 속한 버킷 판별
+- `detectSystemNameForFile()`: src 하위 파일의 시스템명 추출
+
+**💾 파일 I/O:**
+- `readFileContent()`: 다중 인코딩 자동 감지 읽기 (UTF-8 → EUC-KR → MS949)
+- `saveToBucketFromStream()`: 버킷에 파일 저장 (시스템 하위 지원)
+- `createDirectoryIfNotExists()`: 디렉터리 생성
+
+**🔍 파싱 및 분석:**
+- `parseAndSaveStructure()`: ANTLR 파싱 후 JSON 저장
+- `analysisExists()`: 분석 결과 파일 존재 확인
+- `analyzeSpIfNeeded()`: 필요 시에만 SP 파일 분석
+
+**📤 업로드 처리:**
+- `processUploadByMetadata()`: 메타데이터 기반 파일 업로드 (기존 파일 우선)
+- `processParsingBySystems()`: 시스템별 SP 파싱 처리
+- `saveBucketListFromMap()`: DDL/SEQ 버킷 파일 저장
+
+**🔎 파일 검색 및 인덱싱:**
+- `buildProjectFileIndex()`: 프로젝트 전체 파일 인덱스 생성
+- `locateFileByName()`: 인덱스 기반 파일 검색 (fallback: 재귀 탐색)
+- `findExistingSqlFile()`: SQL 파일 재귀 검색
+- `getFileInfoByName()`: 파일명으로 정보 조회
+- `makeFileInfo()`: 파일 정보 맵 생성
 
 #### 🎧 `antlr/CustomPlSqlListener.java`
 ANTLR 파스 트리를 순회하며 AST 노드를 수집합니다.
@@ -778,7 +711,7 @@ AST 노드를 표현하는 데이터 클래스입니다.
 
 **1. 테스트 데이터 위치:**
 ```
-{BASE_DIR}/TestSession_5/src/
+{BASE_DIR}/TestSession_5/TestProject_5/src/
 ├── PRC_GEN_EQUIPMENTS_DAM.sql
 ├── YOUR_PROCEDURE.sql
 └── YOUR_PACKAGE.sql
@@ -786,23 +719,18 @@ AST 노드를 표현하는 데이터 클래스입니다.
 
 **2. 지원 파일 확장자:** `.sql`, `.plsql`, `.pls`, `.pck`, `.txt`
 
-**3. 테스트 세션:** `TestSession_5` (고정)
+**3. 테스트 설정:**
+- 테스트 세션: `TestSession_5`
+- 테스트 프로젝트: `TestProject_5`
+- 시스템명: `TEST`
 
 ### 테스트 함수 설명
 
 #### `testAnalysisWithExistingFiles()`
 - `src/` 폴더의 모든 SQL 파일을 자동 스캔하여 파싱
-- `analysis/` 폴더에 JSON 결과 생성 확인
+- `analysis/TEST/` 폴더에 JSON 결과 생성 확인
 - 테스트 전 `analysis/` 폴더 자동 정리
-
-#### `testSqlObjectNameExtraction()`
-- 정규식 기반 객체명 추출 로직 검증
-- 5가지 패턴 테스트 (PROCEDURE, FUNCTION, PACKAGE 등)
-- 스키마 접두사 자동 제거 확인
-
-#### `testRealFileObjectNameExtraction()`
-- 실제 파일에서 객체명 추출 테스트
-- `PRC_GEN_EQUIPMENTS_DAM.sql` 특별 검증
+- 파일 검색, 파싱, JSON 생성까지 전체 플로우 검증
 
 ---
 

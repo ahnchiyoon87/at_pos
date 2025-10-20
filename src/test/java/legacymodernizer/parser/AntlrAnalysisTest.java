@@ -35,30 +35,40 @@ public class AntlrAnalysisTest {
     private static final String TEST_SESSION = "TestSession_5";
     private static final String TEST_PROJECT = "TestProject_5";
 
+    // ========================================
+    // 테스트 설정
+    // ========================================
+
     @BeforeEach
     void setUp() throws Exception {
         mockRequest = new MockHttpServletRequest();
         mockRequest.addHeader("Session-UUID", TEST_SESSION);
         
-        // 테스트 프로젝트 디렉터리 미리 생성
         String srcDir = plSqlFileParserService.getTargetDirectory(TEST_SESSION, TEST_PROJECT, null);
         File srcDirFile = new File(srcDir);
         if (!srcDirFile.exists()) {
             srcDirFile.mkdirs();
         }
 
-        // analysis 폴더 내용 삭제 (프로젝트 단위)
-        String analysisDir = plSqlFileParserService.getAnalysisDirectory(TEST_SESSION, TEST_PROJECT);
+        String analysisDir = plSqlFileParserService.getAnalysisDirectory(TEST_SESSION, TEST_PROJECT, null);
         File analysisDirFile = new File(analysisDir);
         if (analysisDirFile.exists()) {
             deleteRecursively(analysisDirFile);
         }
         System.out.println("Analysis 디렉토리 정리 완료: " + analysisDir);
     }
+
+    // ========================================
+    // 테스트 케이스
+    // ========================================
     
+    /**
+     * 기존 파일 분석 테스트
+     * - src 디렉터리의 SQL 파일들을 파싱
+     * - 분석 결과 JSON 파일 생성 검증
+     */
     @Test
     void testAnalysisWithExistingFiles() throws Exception {
-        // src 폴더의 SQL 파일 목록 가져오기 (프로젝트 단위)
         String srcDir = plSqlFileParserService.getTargetDirectory(TEST_SESSION, TEST_PROJECT, null);
         File srcDirFile = new File(srcDir);
         File[] sqlFiles = srcDirFile.listFiles((dir, name) -> {
@@ -73,7 +83,6 @@ public class AntlrAnalysisTest {
         assertNotNull(sqlFiles, "SQL 파일을 찾을 수 없습니다");
         assertTrue(sqlFiles.length > 0, "분석할 SQL 파일이 없습니다");
         
-        // 분석 요청 데이터 준비 (systems 기반)
         List<String> spList = new ArrayList<>();
         for (File sqlFile : sqlFiles) {
             spList.add(sqlFile.getName());
@@ -89,15 +98,12 @@ public class AntlrAnalysisTest {
         request.put("dbms", "oracle");
         request.put("systems", systems);
 
-        // 분석 실행
         ResponseEntity<Map<String, Object>> response = fileUploadController.analysisContext(request, mockRequest);
 
-        // 결과 검증
         assertEquals(200, response.getStatusCode().value(), "분석이 실패했습니다");
         assertTrue(response.getBody().containsKey("successFiles"), "successFiles가 없습니다");
         
-        // 분석 결과 파일 확인 (analysis/ 및 하위 시스템 폴더 포함)
-        String analysisDir = plSqlFileParserService.getAnalysisDirectory(TEST_SESSION, TEST_PROJECT);
+        String analysisDir = plSqlFileParserService.getAnalysisDirectory(TEST_SESSION, TEST_PROJECT, null);
         for (File sqlFile : sqlFiles) {
             String baseFileName = sqlFile.getName().substring(0, sqlFile.getName().lastIndexOf('.'));
             Path found = findJsonRecursively(Paths.get(analysisDir), baseFileName + ".json");
@@ -113,90 +119,14 @@ public class AntlrAnalysisTest {
             System.out.println("-------------------");
         }
     }
-    
-    @Test
-    void testSqlObjectNameExtraction() throws Exception {
-        System.out.println("=== SQL 객체명 추출 테스트 시작 ===");
-        
-        // 테스트 케이스들
-        String[] testCases = {
-            "CREATE OR REPLACE PROCEDURE EXWGIOS.PRC_GEN_EQUIPMENTS_DAM",
-            "CREATE OR REPLACE PROCEDURE PRC_TEST_PROC",
-            "CREATE OR REPLACE FUNCTION SCHEMA_NAME.FUNC_NAME",
-            "CREATE OR REPLACE PACKAGE BODY PKG_BODY_NAME",
-            "CREATE OR REPLACE PACKAGE OWNER.PKG_NAME"
-        };
-        
-        String[] expectedResults = {
-            "PRC_GEN_EQUIPMENTS_DAM",
-            "PRC_TEST_PROC", 
-            "FUNC_NAME",
-            "PKG_BODY_NAME",
-            "PKG_NAME"
-        };
-        
-        // 각 테스트 케이스 검증
-        for (int i = 0; i < testCases.length; i++) {
-            String sqlContent = testCases[i];
-            String expected = expectedResults[i];
-            
-            String extracted = plSqlFileParserService.extractSqlObjectName(sqlContent);
-            
-            assertEquals(expected, extracted, 
-                String.format("테스트 실패 - SQL: %s, 예상: %s, 실제: %s", 
-                    sqlContent, expected, extracted));
-            
-            System.out.println(String.format("✓ 성공: '%s' → '%s'", sqlContent, extracted));
-        }
-        
-        System.out.println("=== SQL 객체명 추출 테스트 완료 ===");
-    }
-    
-    @Test
-    void testRealFileObjectNameExtraction() throws Exception {
-        System.out.println("=== 실제 파일에서 객체명 추출 테스트 시작 ===");
-        
-        // src 폴더의 SQL 파일 목록 가져오기 (프로젝트 단위)
-        String srcDir = plSqlFileParserService.getTargetDirectory(TEST_SESSION, TEST_PROJECT, null);
-        File srcDirFile = new File(srcDir);
-        
-        // 파일이 있다면 실제 파일로 테스트
-        if (srcDirFile.exists()) {
-            File[] sqlFiles = srcDirFile.listFiles((dir, name) -> {
-                String lowercaseName = name.toLowerCase();
-                return lowercaseName.endsWith(".sql") || 
-                       lowercaseName.endsWith(".plsql") ||
-                       lowercaseName.endsWith(".pls") ||
-                       lowercaseName.endsWith(".pck");
-            });
-            
-            if (sqlFiles != null && sqlFiles.length > 0) {
-                for (File sqlFile : sqlFiles) {
-                    String fileContent = plSqlFileParserService.readFileContent(sqlFile);
-                    String extractedObjectName = plSqlFileParserService.extractSqlObjectName(fileContent);
-                    
-                    System.out.println(String.format("파일: %s", sqlFile.getName()));
-                    System.out.println(String.format("추출된 객체명: %s", extractedObjectName));
-                    
-                    // PRC_GEN_EQUIPMENTS_DAM.sql 파일의 경우 특별히 검증
-                    if ("PRC_GEN_EQUIPMENTS_DAM.sql".equals(sqlFile.getName())) {
-                        assertEquals("PRC_GEN_EQUIPMENTS_DAM", extractedObjectName,
-                            "PRC_GEN_EQUIPMENTS_DAM.sql에서 올바른 객체명이 추출되지 않았습니다");
-                        System.out.println("✓ PRC_GEN_EQUIPMENTS_DAM.sql 객체명 추출 성공!");
-                    }
-                    
-                    System.out.println("-------------------");
-                }
-            } else {
-                System.out.println("테스트할 SQL 파일이 없습니다.");
-            }
-        } else {
-            System.out.println("src 디렉토리가 존재하지 않습니다: " + srcDir);
-        }
-        
-        System.out.println("=== 실제 파일에서 객체명 추출 테스트 완료 ===");
-    }
 
+    // ========================================
+    // 테스트 유틸리티
+    // ========================================
+
+    /**
+     * 디렉터리 재귀 삭제
+     */
     private static void deleteRecursively(File file) {
         if (file.isDirectory()) {
             File[] children = file.listFiles();
@@ -207,6 +137,9 @@ public class AntlrAnalysisTest {
         file.delete();
     }
 
+    /**
+     * JSON 파일 재귀 검색
+     */
     private static Path findJsonRecursively(Path root, String fileName) throws Exception {
         try (Stream<Path> stream = Files.walk(root)) {
             return stream
