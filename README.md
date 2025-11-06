@@ -1,6 +1,9 @@
-# 🔧 ANTLR Parser Server
+# Legacy Modernizer ANTLR Server - Parsing 파이프라인 완벽 가이드
 
-> **PL/SQL 코드를 ANTLR로 파싱하여 AST(추상 구문 트리)를 JSON으로 생성하는 서비스**
+> **PL/SQL 파일을 세션 단위로 수집하고 ANTLR로 파싱하여 AST JSON을 제공하는 Spring Boot 기반 백엔드**
+>
+> 이 문서는 새로 합류한 개발자가 프로젝트의 전체 구조와 실제 동작 원리를 빠르게 이해하고,
+> 필요한 수정 지점을 즉시 파악할 수 있도록 작성되었습니다.
 
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3.0-6DB33F?style=flat&logo=spring-boot)](https://spring.io/projects/spring-boot)
 [![Java](https://img.shields.io/badge/Java-17-007396?style=flat&logo=openjdk&logoColor=white)](https://www.oracle.com/java/)
@@ -9,943 +12,533 @@
 
 ---
 
-## 📋 목차
+## 목차
 
-- [프로젝트 소개](#-프로젝트-소개)
-- [핵심 기능](#-핵심-기능)
-- [동작 원리](#-동작-원리)
-- [시스템 아키텍처](#-시스템-아키텍처)
-- [시작하기](#-시작하기)
-- [API 가이드](#-api-가이드)
-- [데이터 구조](#-데이터-구조)
-- [디렉터리 구조](#-디렉터리-구조)
-- [테스트](#-테스트)
-- [문제해결](#-문제해결)
-
----
-
-## 🎯 프로젝트 소개
-
-ANTLR Parser Server는 **PL/SQL 코드를 문법에 맞게 파싱하여 구조화된 트리를 생성**하는 Spring Boot 기반 서비스입니다.
-
-### 🤔 왜 이 프로젝트가 필요한가요?
-
-PL/SQL 코드를 분석하고 변환하기 위해서는 먼저 **코드의 구조를 정확히 파악**해야 합니다. 하지만 수작업으로 코드 구조를 분석하는 것은 매우 어렵고 오류가 발생하기 쉽습니다.
-
-**기존 방식의 문제점:**
-- 👨‍💻 수작업 분석: 코드 구조 파악에 많은 시간 소요
-- ❌ 높은 오류율: 복잡한 중첩 구조 파악 어려움
-- 📉 일관성 부족: 분석 기준이 일정하지 않음
-- 🔄 재사용 불가: 분석 결과를 다른 도구에서 활용하기 어려움
-
-**ANTLR Parser Server의 해결책:**
-- ⚡ 자동 파싱: 몇 초 내에 정확한 구문 트리 생성
-- 🎯 정확한 분석: ANTLR 문법 기반의 정확한 파싱
-- 💡 일관된 품질: 표준화된 JSON 형식으로 출력
-- 📊 구조화: 라인 번호와 구문 타입이 포함된 트리 구조
+1. [프로젝트 개요](#1-프로젝트-개요)
+2. [시스템 아키텍처](#2-시스템-아키텍처)
+3. [데이터 저장 구조와 AST JSON](#3-데이터-저장-구조와-ast-json)
+4. [Parsing 파이프라인 완벽 가이드](#4-parsing-파이프라인-완벽-가이드)
+5. [시퀀스 다이어그램](#5-시퀀스-다이어그램)
+6. [파일별 상세 가이드](#6-파일별-상세-가이드)
+7. [개발 환경 설정](#7-개발-환경-설정)
+8. [API 테스트 가이드](#8-api-테스트-가이드)
+9. [검증 & 테스트 전략](#9-검증--테스트-전략)
+10. [운영 및 모니터링 메모](#10-운영-및-모니터링-메모)
+11. [트러블슈팅](#11-트러블슈팅)
+12. [FAQ & 다음 단계](#12-faq--다음-단계)
+13. [참고 자료](#13-참고-자료)
 
 ---
 
-## ✨ 핵심 기능
+## 1. 프로젝트 개요
 
-### 1️⃣ **파일 업로드 (File Upload)**
-- PL/SQL 파일(`.sql`)을 세션별로 안전하게 저장
-- **기존 파일 우선 사용** - 이미 있으면 재사용, 없으면 저장
-- 파일명 기반 자동 분류 (SP/DDL/Sequence)
-- 다중 파일 동시 업로드 지원
-- 자동 인코딩 감지 (UTF-8, EUC-KR, MS949)
-- testmode 지원 (기존 파일만 조회 가능)
-- **전체 성공/실패 방식** - 하나라도 실패하면 전체 실패
+### 1.1 Legacy Modernizer ANTLR Server란?
 
-### 2️⃣ **구문 파싱 (Parsing)**
-- ANTLR 4.13.1 기반 정확한 PL/SQL 파싱
-- AST(추상 구문 트리) 생성
-- 구문 노드별 시작/종료 라인 추출
-- JSON 형식으로 결과 저장
-- **파일 인덱싱** - 빠른 파일 검색 성능
-- **전체 성공/실패 방식** - 하나라도 실패하면 전체 실패
+Legacy Modernizer 플랫폼의 첫 번째 게이트웨이로, **원본 PL/SQL 자산을 세션 기반 디렉터리에 안전하게 저장하고 ANTLR 4 파서를 통해 AST JSON을 생성**합니다. 생성된 JSON은 Understanding/Converting 단계에서 재활용되는 단일 소스이며, 재파싱 없이 반복 조회가 가능합니다.
 
-### 3️⃣ **세션 관리 (Session Management)**
-- 사용자별 독립적인 작업 공간
-- 세션 UUID 기반 파일 격리
-- 프로젝트별 디렉터리 구조
-- 분석 결과 자동 캐싱 및 재사용
+### 1.2 핵심 철학
 
-### 4️⃣ **스마트 파일 검색**
-- 프로젝트 전체 파일 인덱스 생성
-- 인덱스 기반 빠른 검색
-- fallback 재귀 탐색 지원
-- 대소문자 무시 검색
+```text
+┌───────────────────────────────────────────────────────────────┐
+│  "AST를 빠르고 일관되게 제공해야 이후 단계가 안전해진다"        │
+│                                                               │
+│  업로드부터 파싱까지의 모든 과정을 자동화하고, 재사용 가능한       │
+│  JSON 캐시를 제공해야 전체 현대화 파이프라인의 품질을 보장한다    │
+└───────────────────────────────────────────────────────────────┘
+```
+
+### 1.3 플랫폼 내 역할
+
+| 구분 | 입력 | 출력 | 역할 |
+|------|------|------|------|
+| **ANTLR Server** | PL/SQL 업로드 파일 + metadata | AST JSON + 파일 콘텐츠 | - 파일 저장/인덱싱<br/>- ANTLR 파싱<br/>- 분석 캐시 관리 |
+| **Understanding Core (별도 서비스)** | AST JSON | Neo4j 그래프 | - 의미 분석<br/>- 호출/테이블 관계 구축 |
+| **Converting Core (별도 서비스)** | Neo4j 그래프 | 타겟 코드 템플릿 | - 코드 생성<br/>- 구조 변환 |
+
+> ⚠️ *이 문서는 ANTLR Server 범위만 다룹니다. Understanding/Converting은 다른 저장소에서 관리됩니다.*
 
 ---
 
-## 🔍 동작 원리
+## 2. 시스템 아키텍처
 
-ANTLR Parser Server는 크게 **2단계**로 동작합니다:
+### 2.1 전체 구조
 
-### 📤 1단계: 파일 업로드 (File Upload)
-
+```text
+┌────────────────────────────────────────────────────────────┐
+│                   Legacy Modernizer Frontend               │
+│  - 세션 UUID 생성 및 헤더 전달                              │
+│  - 업로드 UI / 파싱 트리거                                  │
+└───────────────┬───────────────────────────────────────────┘
+                │ HTTP (REST)
+┌───────────────▼───────────────────────────────────────────┐
+│                 ANTLR Parser Server (Spring Boot)         │
+│  ┌────────────────────────────────────────────────────┐   │
+│  │ FileUploadController                               │   │
+│  │  ├─ POST /fileUpload                               │   │
+│  │  └─ POST /parsing                                  │   │
+│  ├────────────────────────────────────────────────────┤   │
+│  │ PlSqlFileParserService                             │   │
+│  │  ├─ 파일 인덱싱/저장/읽기                           │   │
+│  │  └─ ANTLR 파싱 및 JSON 저장                         │   │
+│  └────────────────────────────────────────────────────┘   │
+└───────────────┬───────────────────────────────────────────┘
+                │ 로컬 파일 시스템 (세션별 디렉터리)
+┌───────────────▼───────────────────────────────────────────┐
+│       {BASE_DIR}/{Session-UUID}/{projectName}/             │
+│        ├─ src/{system}/                                   │
+│        ├─ ddl/                                            │
+│        ├─ sequence/                                       │
+│        └─ analysis/{system}/                              │
+└────────────────────────────────────────────────────────────┘
 ```
-Frontend → ANTLR 서버 → 파일 검색/저장 → 응답
+
+### 2.2 내부 모듈 흐름
+
+```text
+Controller (FileUploadController)
+   │
+   ├─ PlSqlFileParserService.processUploadByMetadata()
+   │      ├─ buildProjectFileIndex()
+   │      ├─ saveToBucketFromStream()
+   │      └─ readFileContent() + analysisExists()
+   │
+   └─ PlSqlFileParserService.processParsingBySystems()
+          ├─ locateFileByName()
+          ├─ analyzeSpIfNeeded() → parseAndSaveStructure()
+          └─ CustomPlSqlListener → Node.toJson()
 ```
 
-**무엇을 하나요?**
-1. 🖥️ **파일 수신**: Frontend에서 메타데이터 + 파일 업로드 (multipart/form-data)
-2. 📁 **메타데이터 파싱**: 시스템별 파일 목록, DDL, Sequence 정보 추출
-3. 🔍 **파일 인덱스 생성**: 프로젝트 전체 파일을 한 번에 스캔하여 인덱스 구축
-4. 💾 **파일 처리** (SP 파일 우선순위):
-   - ✅ **기존 파일 우선**: 이미 저장된 파일이 있으면 그대로 사용
-   - 📤 **업로드 저장**: 없으면 업로드 파일을 `src/{system}/`에 저장
-   - 📦 **DDL/SEQ 저장**: `ddl/`, `sequence/` 디렉터리에 저장
-5. 🔍 **인코딩 감지**: UTF-8 → EUC-KR → MS949 순으로 자동 감지
-6. ✅ **완료 응답**: SP 파일 정보만 반환 (파일명, 경로, 내용, 분석 존재 여부)
+### 2.3 주요 의존 요소
 
-**⚠️ 중요:**
-- **testmode=true**: 업로드 없이 기존 파일만 조회 (테스트용)
-- **testmode=false**: 업로드 파일 필수, 없으면 저장
-- 응답에는 SP 파일 정보만 포함 (DDL/Sequence 제외)
-- 모든 파일 처리 API는 `Session-UUID` 헤더 필수
-
-### 🔍 2단계: 구문 파싱 (Parsing)
-
-```
-Frontend → ANTLR 서버 → 파일 검색 → ANTLR 파싱 → AST 생성 → JSON 저장
-```
-
-**무엇을 하나요?**
-1. 📤 **파싱 요청**: Frontend가 시스템별 SP 파일 목록과 함께 요청
-2. 🔍 **파일 인덱스 생성**: 프로젝트 전체 파일 인덱스 구축
-3. 📂 **파일 검색**: 인덱스에서 파일 우선 검색, 없으면 재귀 탐색
-4. ✅ **분석 확인**: 이미 분석된 파일은 자동 스킵
-5. 🔧 **ANTLR 파싱** (분석 필요 시):
-   - **Lexer 실행**: `PlSqlLexer`가 토큰 스트림 생성
-   - **Parser 실행**: `PlSqlParser`가 구문 트리 생성
-   - **Listener 순회**: `CustomPlSqlListener`가 트리 순회하며 노드 수집
-6. 📊 **AST 구성**: 구문 타입과 라인 번호가 포함된 트리 구조 생성
-7. 💾 **JSON 저장**: `analysis/{system}/{파일명}.json`에 결과 저장
-8. ✅ **완료 응답**: 시스템별 파일 정보 반환 (파일명, 내용, 분석 상태)
-
-### 🔧 ANTLR 파싱 처리 상세 흐름
-
-ANTLR에서 **Lexer(렉서)**와 **Parser(파서)**는 두 단계로 나뉜 문법 분석기 구성요소입니다.
-쉽게 말해 **"문장을 쪼개는 사람"**과 **"문장의 구조를 이해하는 사람"**이라고 보면 됩니다.
+| 구성 요소 | 역할 | 세부 내용 |
+|-----------|------|-----------|
+| **Spring Boot 3.3.0** | REST API + DI | Controller/Service 구조 구성 |
+| **Jakarta Servlet** | 헤더 추출 | `Session-UUID` 확인 |
+| **Jackson** | JSON 파싱 | metadata 문자열 → Map |
+| **ANTLR 4.13.1** | 파서 생성 | Lexer/Parser/Listener 실행 |
+| **Lombok** | 보일러플레이트 제거 | `@RequiredArgsConstructor`, `@Slf4j` 등 |
+| **Maven** | 빌드 도구 | `mvn clean install` 파이프라인 |
 
 ---
 
-## 🔹 1. Lexer (렉서, 어휘 분석기)
+## 3. 데이터 저장 구조와 AST JSON
 
-**역할:**
-입력된 문자열(소스 코드)을 **토큰(token)**으로 쪼갭니다.
-즉, **"단어 단위로 자르는"** 단계입니다.
+### 3.1 BASE_DIR 결정 규칙
 
-**예시:**
-아래 PL/SQL 코드가 있다고 해볼게요 👇
+| 우선순위 | 경로 결정 | 설명 |
+|----------|-----------|------|
+| 1 | `DOCKER_COMPOSE_CONTEXT` 환경 변수 | Docker 배포 환경에서 마운트된 볼륨 활용 |
+| 2 | `<프로젝트 루트>/../data` | 로컬 개발 기본 경로 |
 
-```sql
-SELECT name FROM users;
-```
+> `PlSqlFileParserService`의 `BASE_DIR` 상수에서 위 우선순위가 반영됩니다.
 
-**Lexer는 이걸 다음처럼 토큰화(tokenize) 합니다:**
+### 3.2 세션 디렉터리 레이아웃
 
 ```
-SELECT   → KEYWORD_SELECT  
-name     → IDENTIFIER  
-FROM     → KEYWORD_FROM  
-users    → IDENTIFIER  
-;        → SEMICOLON
+{BASE_DIR}/
+└── {Session-UUID}/
+    └── {projectName}/
+        ├── src/
+        │   └── {systemName}/
+        │       └── *.sql | *.pls | *.plsql | *.pck | *.txt
+        ├── ddl/
+        │   └── *.sql
+        ├── sequence/
+        │   └── *.sql
+        └── analysis/
+            └── {systemName}/
+                └── *.json
 ```
 
-**결과물:**
-→ **"토큰 리스트(Token Stream)"**
-이게 다음 단계인 파서(Parser)에 입력됩니다.
+- `src/{system}/` : 시스템별 저장 프로시저 원본 파일
+- `analysis/{system}/` : 동일 시스템명으로 파싱 JSON 저장
+- `ddl/`, `sequence/` : metadata에 명시된 기타 스크립트 저장소
 
----
+### 3.3 AST JSON 기본 구조
 
-## 🔹 2. Parser (파서, 구문 분석기)
+`CustomPlSqlListener`가 작성하는 JSON은 `Node` 클래스가 담당하며, 아래 형태를 가집니다.
 
-**역할:**
-Lexer가 만든 토큰들을 **문법 규칙(grammar rule)**에 따라 **트리 구조(AST, Parse Tree)**로 분석합니다.
-즉, **"문장이 문법적으로 올바른지 검사하고 구조를 파악하는"** 단계입니다.
-
-**예시:**
-같은 문장에서 파서는 이런 구조를 만듭니다.
-
-```
-(selectStatement
-   (selectClause SELECT name)
-   (fromClause FROM users)
-   SEMICOLON)
-```
-
-**결과물:**
-→ **Parse Tree (또는 Abstract Syntax Tree)**
-이후 코드 해석, 변환, 실행 등에서 사용됩니다.
-
----
-
-## 🔸 정리하면
-
-| 구분 | 단계 | 입력 | 출력 | 역할 |
-|------|------|------|------|------|
-| **Lexer** | 어휘 분석 | 문자 | 토큰 | 문자열을 토큰 단위로 분리 |
-| **Parser** | 구문 분석 | 토큰 | 파스트리(Parse Tree) | 토큰을 문법 구조로 해석 |
-
----
-
-## 🔹 실제 PL/SQL 파싱 과정
-
-### 1️⃣ **렉싱 단계**
-```
-PL/SQL 소스코드 → PlSqlLexer → 토큰 스트림
-```
-
-**렉서가 하는 일:**
-- 📝 **키워드 인식**: `CREATE`, `PROCEDURE`, `BEGIN`, `END` 등 PL/SQL 예약어
-- 🔤 **식별자 추출**: 변수명, 함수명, 테이블명 등
-- 🔢 **리터럴 처리**: 숫자, 문자열, 날짜 등
-- 🎯 **구분자 인식**: 세미콜론, 괄호, 콤마 등
-- 📍 **위치 정보**: 각 토큰의 시작/종료 라인/컬럼 번호
-
-**실제 예시:**
-```sql
-CREATE PROCEDURE test_proc AS
-BEGIN
-    SELECT * FROM users;
-END;
-```
-
-**렉서 출력 (토큰 스트림):**
-```
-[CREATE, 1:1] [PROCEDURE, 1:8] [test_proc, 1:18] [AS, 1:28]
-[BEGIN, 2:1] [SELECT, 3:5] [*, 3:12] [FROM, 3:14] [users, 3:19] [;, 3:24]
-[END, 4:1] [;, 4:4]
-```
-
-### 2️⃣ **파싱 단계**
-```
-토큰 스트림 → PlSqlParser → 구문 트리 (Parse Tree)
-```
-
-**파서가 하는 일:**
-- 🌳 **구문 트리 생성**: 토큰들을 문법 규칙에 따라 계층적 구조로 구성
-- 📋 **문법 검증**: PL/SQL 문법에 맞는지 검사
-- 🏗️ **구조 분석**: 프로시저, 함수, 블록 등의 중첩 구조 파악
-- 🔗 **관계 설정**: 각 구문 요소 간의 부모-자식 관계 정의
-
-**구문 트리 예시:**
-```
-sql_script
-└── procedure_definition
-    ├── CREATE PROCEDURE test_proc AS
-    └── block
-        ├── BEGIN
-        ├── statement
-        │   └── select_statement
-        │       ├── SELECT *
-        │       └── FROM users
-        └── END
-```
-
-### 3️⃣ **리스너 순회 단계**
-```
-구문 트리 → CustomPlSqlListener → AST 노드 수집
-```
-
-**리스너가 하는 일:**
-- 🚶 **트리 순회**: 구문 트리의 각 노드를 방문
-- 📊 **노드 수집**: 중요한 구문 요소만 선별하여 수집
-- 🏷️ **타입 분류**: 각 노드의 구문 타입 식별 (PROCEDURE, SELECT, etc.)
-- 📍 **위치 정보**: 시작/종료 라인 번호 추출
-- 🔗 **관계 구성**: 부모-자식 관계를 유지하며 AST 구성
-
-**수집되는 노드 타입:**
-- `PROCEDURE_DEFINITION`: 프로시저 정의
-- `FUNCTION_DEFINITION`: 함수 정의  
-- `SELECT_STATEMENT`: SELECT 문
-- `INSERT_STATEMENT`: INSERT 문
-- `UPDATE_STATEMENT`: UPDATE 문
-- `DELETE_STATEMENT`: DELETE 문
-- `IF_STATEMENT`: IF 조건문
-- `LOOP_STATEMENT`: 반복문
-
-### 4️⃣ **최종 AST JSON 생성**
 ```json
 {
-  "type": "PROCEDURE_DEFINITION",
-  "name": "test_proc",
+  "type": "PROCEDURE",
   "startLine": 1,
-  "endLine": 4,
+  "endLine": 28,
   "children": [
     {
-      "type": "SELECT_STATEMENT", 
-      "startLine": 3,
-      "endLine": 3,
-      "query": "SELECT * FROM users"
+      "type": "SPEC",
+      "startLine": 1,
+      "endLine": 5,
+      "children": []
+    },
+    {
+      "type": "SELECT",
+      "startLine": 10,
+      "endLine": 15,
+      "children": []
+    },
+    {
+      "type": "INSERT",
+      "startLine": 20,
+      "endLine": 24,
+      "children": []
     }
   ]
 }
 ```
 
-**왜 AST가 필요한가요?**
+| 필드 | 설명 |
+|------|------|
+| `type` | 노드 타입 (PROCEDURE/SELECT/DECLARE 등) |
+| `startLine`, `endLine` | 1-based 라인 범위 |
+| `children` | 하위 노드 배열 |
 
-AST(추상 구문 트리)는 코드의 문법 구조를 계층적으로 표현한 것입니다. 
-이를 통해 **코드 분석 도구**가 각 구문의 위치와 관계를 정확히 파악하여, 
-의미 분석이나 코드 변환을 수행할 수 있습니다.
+### 3.4 주요 노드 타입 정리
 
-**AST 활용 사례:**
-- 🔍 **코드 분석**: 복잡한 PL/SQL의 구조 파악
-- 🔄 **코드 변환**: 다른 언어나 프레임워크로 마이그레이션
-- 📊 **메트릭 수집**: 코드 복잡도, 라인 수 등 측정
-- 🛠️ **리팩토링**: 자동화된 코드 개선
-
-
----
-
-## 🏗️ 시스템 아키텍처
-
-### 전체 흐름도
-
-```mermaid
-flowchart TB
-    subgraph "1️⃣ 파일 업로드"
-        A1[🖥️ Frontend<br/>metadata + files] -->|1. POST /fileUpload| A2[⚡ ANTLR 서버]
-        A2 -->|2. metadata 파싱| A3[📋 시스템별 분류]
-        A3 -->|3. 파일 인덱스 생성| A4[🔍 프로젝트 스캔]
-        A4 --> A5{기존 파일<br/>존재?}
-        A5 -->|있음| A6[📄 기존 파일 읽기]
-        A5 -->|없음| A7[💾 업로드 파일 저장<br/>src/system/]
-        A6 --> A8[📊 SP 정보 응답]
-        A7 --> A8
-        A8 -->|응답| A1
-    end
-    
-    subgraph "2️⃣ 구문 파싱"
-        B1[🖥️ Frontend<br/>시스템별 SP 목록] -->|POST /parsing| B2[⚡ ANTLR 서버]
-        B2 --> B3[🔍 파일 인덱스 생성]
-        B3 --> B4[📂 파일 검색]
-        B4 --> B5{분석<br/>존재?}
-        B5 -->|없음| B6[🔧 ANTLR 파싱]
-        B5 -->|있음| B9[⏩ 스킵]
-        B6 --> B7[🌳 AST 생성]
-        B7 --> B8[💾 JSON 저장<br/>analysis/system/]
-        B8 --> B10[📊 파일 정보 수집]
-        B9 --> B10
-        B10 -->|응답| B1
-    end
-    
-    A1 -.->|완료 후| B1
-    
-    style A1 fill:#e3f2fd
-    style B1 fill:#fff3e0
-```
-
-### 외부 서비스 연동
-
-```mermaid
-flowchart LR
-    FE[🖥️ Frontend<br/>또는 Backend]
-    ANTLR[🔧 ANTLR 서버<br/>Spring Boot]
-    FS[📁 File System]
-    
-    FE -->|① 파일 업로드| ANTLR
-    FE -->|② 파싱 요청| ANTLR
-    
-    ANTLR <--> FS
-    
-    style FE fill:#e3f2fd
-    style ANTLR fill:#fff3e0
-    style FS fill:#fce4ec
-```
-
-**각 구성 요소 역할:**
-
-| 구성 요소 | 역할 | 기술 스택 |
-|---------|------|----------|
-| 🖥️ **Frontend** | 사용자 인터페이스, 파일 업로드, API 요청 | React/Vue 등 |
-| 🔧 **ANTLR 서버** | PL/SQL 파싱, AST JSON 생성 | Spring Boot 3.3.0 + ANTLR 4.13.1 |
-| 📁 **File System** | 파일 저장소 (원본 코드, AST JSON) | 로컬 디스크 |
-
-**주요 데이터 흐름:**
-- **① 업로드**: Frontend → ANTLR ↔ File System (기존 파일 우선, 없으면 저장)
-- **② 파싱**: Frontend → ANTLR ↔ File System (파일 읽기 → AST 저장)
+| 타입 | 설명 |
+|------|------|
+| `PROCEDURE` | 프로시저/함수 본문 |
+| `SPEC` | 파라미터 선언부 |
+| `DECLARE` | 변수 선언부 |
+| `SELECT`, `INSERT`, `UPDATE`, `DELETE` | DML 구문 |
+| `IF`, `LOOP`, `EXCEPTION` | 제어 구문 |
+| `PACKAGE_BODY`, `PACKAGE_SPEC` | 패키지 정의 (있는 경우) |
 
 ---
 
-## 🚀 시작하기
+## 4. Parsing 파이프라인 완벽 가이드
 
-### 📋 사전 요구사항
+### 4.1 전체 플로우 개요
 
-시작하기 전에 다음 항목들이 설치되어 있어야 합니다:
+```
+[1] 업로드 요청 (POST /fileUpload)
+     └─ metadata JSON 파싱 → 파일 인덱싱/저장 → 성공 파일 목록 응답
+[2] 파싱 요청 (POST /parsing)
+     └─ 파일 검색 → JSON 캐시 확인 → 필요 시 ANTLR 파싱 → 결과 응답
+```
 
-- ✅ **Java 17 이상**
-- ✅ **Maven 3.8 이상**
-- ✅ **Git**
+### 4.2 Step 1. 업로드 요청 수신
 
-### 📥 1단계: 저장소 클론
+- **컨트롤러**: `FileUploadController.fileUpload(...)`
+- **헤더**: `Session-UUID` (필수)
+- **입력**: `metadata` (JSON 문자열), `files` (MultipartFile[])
+- metadata 파싱 실패 시 `400 Bad Request`
+- 세션 헤더 누락 시 `400 Bad Request`
+
+```java
+@PostMapping(value = "/fileUpload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+public ResponseEntity<Map<String, Object>> fileUpload(
+        @RequestPart("metadata") String metadata,
+        @RequestPart("files") MultipartFile[] files,
+        HttpServletRequest request) {
+    String sessionUUID = request.getHeader("Session-UUID");
+    if (sessionUUID == null || sessionUUID.isBlank()) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "세션 정보가 없습니다");
+    }
+    Map<String, Object> meta = mapper.readValue(metadata, new TypeReference<>() {});
+    ...
+}
+```
+
+### 4.3 Step 2. 파일 인덱싱 & 저장 로직
+
+#### 4.3.1 `buildProjectFileIndex`
+
+- `src/` 디렉터리 재귀 탐색 + `ddl/`, `sequence/` 1-depth 탐색
+- 소문자 파일명 → `File` 객체 Map 구성
+- 업로드 이전에 이미 존재하는 파일 우선 반환
+
+#### 4.3.2 `saveToBucketFromStream`
+
+- 버킷(`src`/`ddl`/`sequence`) 기반으로 저장 경로 결정
+- 시스템명이 있는 경우 `src/{system}/` 하위에 파일 생성
+- 기존 파일이 있으면 덮어쓰기 (REPLACE_EXISTING)
+
+#### 4.3.3 인코딩 감지 `readFileContent`
+
+1. UTF-8 시도 → 실패 시
+2. EUC-KR → 실패 시
+3. MS949 → 마지막 시도
+
+### 4.4 Step 3. 성공 응답 포맷
+
+- 업로드 API는 `successFiles` 배열만 반환합니다.
+- 배열 요소에는 `system`, `fileName`, `filePath`, `fileContent`, `analysisExists` 포함
+- DDL/Sequence 파일은 응답에 포함되지 않습니다 (저장만 수행)
+
+### 4.5 Step 4. 파싱 요청 처리
+
+- **컨트롤러**: `FileUploadController.analysisContext(...)`
+- systems 배열 유효성 검증 (없으면 400)
+- 세션 헤더 필수
+
+```java
+@PostMapping("/parsing")
+public ResponseEntity<Map<String, Object>> analysisContext(
+        @RequestBody Map<String, Object> request,
+        HttpServletRequest httpRequest) {
+    String sessionUUID = httpRequest.getHeader("Session-UUID");
+    if (sessionUUID == null || sessionUUID.isBlank()) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "세션 정보가 없습니다");
+    }
+    ...
+}
+```
+
+### 4.6 Step 5. 파일 검색 & 캐시 확인
+
+- `locateFileByName` : 인덱스 기반 빠른 검색 → 실패 시 재귀 탐색
+- `analysisExists` : `analysis/{system}/{파일명}.json` 존재 여부 확인
+- 이미 분석된 파일은 재파싱하지 않고 `analysisExists=true`로 응답
+
+### 4.7 Step 6. ANTLR 파싱 실행
+
+- `parseAndSaveStructure` 수행 시 흐름
+  1. `CharStreams.fromStream()` → `CaseChangingCharStream`으로 대문자 변환 (Oracle 호환)
+  2. `PlSqlLexer` → `CommonTokenStream`
+  3. `PlSqlParser.sql_script()`로 파스 트리 생성
+  4. `CustomPlSqlListener`가 트리를 순회하며 `Node` 구조 구성
+  5. `Node.toJson()` 결과를 `{analysis}/{system}/{파일명}.json`에 저장
+
+### 4.8 Step 7. 응답 및 에러 처리
+
+- 모든 파일 처리 성공 시에만 `200 OK`
+- 업로드/파싱 중 하나라도 실패하면 즉시 예외 발생 → `GlobalExceptionHandler`에서 `{"detail":"..."}` 반환
+- 부분 성공 미지원
+
+---
+
+## 5. 시퀀스 다이어그램
+
+### 5.1 업로드 + 파싱 전체 흐름
+
+```mermaid
+sequenceDiagram
+    participant FE as Frontend
+    participant CTRL as FileUploadController
+    participant SRV as PlSqlFileParserService
+    participant FS as FileSystem
+    participant ANTLR as ANTLR Runtime
+
+    FE->>CTRL: POST /fileUpload (metadata + files)
+    CTRL->>SRV: processUploadByMetadata()
+    SRV->>FS: buildProjectFileIndex()
+    SRV->>FS: saveToBucketFromStream()
+    SRV->>FS: readFileContent()
+    SRV-->>CTRL: successFiles
+    CTRL-->>FE: 업로드 결과
+
+    FE->>CTRL: POST /parsing (systems)
+    CTRL->>SRV: processParsingBySystems()
+    SRV->>FS: locateFileByName()
+    alt analysisExists=false
+        SRV->>ANTLR: parseAndSaveStructure()
+        ANTLR-->>FS: analysis/{system}/{file}.json 저장
+    else 이미 존재
+        SRV-->>SRV: 캐시 재사용
+    end
+    SRV-->>CTRL: successFiles (analysisExists)
+    CTRL-->>FE: 파싱 결과
+```
+
+---
+
+## 6. 파일별 상세 가이드
+
+### 6.1 `ParserApplication.java`
+
+- Spring Boot 진입점
+- 별도 로직 없음 (SpringApplication.run 호출)
+
+### 6.2 `controller/FileUploadController.java`
+
+| 메서드 | 역할 | 비고 |
+|--------|------|------|
+| `fileUpload()` | 업로드 처리 | metadata 파싱, 파일 저장, 응답 구성 |
+| `analysisContext()` | 파싱 처리 | 캐시 확인 후 필요 시 파싱 실행 |
+
+- `Session-UUID` 헤더 필수 확인
+- 모든 예외는 `ResponseStatusException`으로 래핑하여 글로벌 핸들러에 전달
+
+### 6.3 `service/PlSqlFileParserService.java`
+
+- 전체 비즈니스 로직 핵심
+- 5개 섹션으로 구성
+  1. **경로 유틸리티**: 디렉터리 결정, 시스템명 탐지
+  2. **파일 I/O**: 저장/읽기/인코딩 감지
+  3. **파싱 관련**: ANTLR 실행, JSON 존재 확인
+  4. **업로드 처리**: metadata 기반 파일 처리 흐름
+  5. **파일 검색**: 인덱싱, 재귀 탐색, 정보 조회
+
+### 6.4 `antlr/*`
+
+| 파일 | 설명 |
+|------|------|
+| `CaseChangingCharStream.java` | Lexer 입력을 대문자로 변환 |
+| `CustomPlSqlListener.java` | 파스 트리를 순회하며 `Node` 구성 |
+| `Node.java` | AST 노드 표현 및 `toJson()` 직렬화 |
+| `plsql/` | ANTLR가 생성한 Lexer/Parser/Listener 파일 (수정 금지) |
+
+### 6.5 `config/WebConfig.java`
+
+- CORS 설정 (`http://localhost:8080` 허용)
+- `GlobalExceptionHandler`
+  - `ResponseStatusException` → HTTP 상태/메시지 변환
+  - 기타 예외 → `500` + `"Unexpected error: ..."`
+  - 모든 응답은 `detail` 단일 필드 유지
+
+### 6.6 `src/main/resources/application.properties`
+
+```
+spring.application.name=parser
+server.port=8081
+spring.servlet.multipart.max-file-size=3MB
+spring.servlet.multipart.max-request-size=3MB
+logging.charset.console=MS949
+logging.charset.file=UTF-8
+```
+
+---
+
+## 7. 개발 환경 설정
+
+### 7.1 필수 소프트웨어
+
+| 항목 | 버전 | 확인 명령 |
+|------|------|------------|
+| JDK | 17 | `java -version` |
+| Maven | 3.8+ | `mvn -v` |
+| Git | 최신 | `git --version` |
+
+### 7.2 설치 & 빌드 순서
 
 ```bash
 git clone <repository-url>
 cd Antlr-Server
-```
-
-### 📦 2단계: 의존성 설치
-
-**방법: 시스템 Maven 사용**
-```bash
 mvn clean install
+# 테스트 생략 시
+mvn clean install -Dmaven.test.skip=true
 ```
 
-### 🎬 4단계: 서버 실행
+### 7.3 실행 옵션
 
 ```bash
+# 개발 모드 (소스 Hot Reload 없음)
 mvn spring-boot:run
+
+# 패키징 후 실행
+mvn package
+java -jar target/parser-0.0.1-SNAPSHOT.jar
 ```
----
 
-## 📡 API 가이드
-
-### 공통 헤더
-
-모든 파일 처리 API 요청에는 다음 헤더가 필요합니다:
-
-| 헤더 | 필수 | 설명 | 예시 |
-|-----|------|------|------|
-| `Session-UUID` | ✅ | 세션 식별자 (사용자별 고유 ID) | `user-session-12345` |
+- 서버 포트: `http://localhost:8081`
+- 로그 인코딩: 콘솔 MS949, 파일 UTF-8 (Windows 환경 고려)
 
 ---
 
-### 🏥 API 0: 헬스체크
+## 8. API 테스트 가이드
 
-**엔드포인트:** `GET /`
-
-**역할:** 서버 상태 확인
-
-**요청 예시:**
+### 8.1 헬스체크
 
 ```bash
 curl -i http://localhost:8081/
 ```
 
-**응답:**
-```
-HTTP/1.1 200 OK
-Content-Type: text/plain
-
-OK
-```
-
----
-
-### 📤 API 1: 파일 업로드
-
-**엔드포인트:** `POST /fileUpload`
-
-**역할:** PL/SQL 파일을 시스템별로 서버에 업로드합니다.
-
-**요청 예시:**
+### 8.2 업로드 예제
 
 ```bash
 curl -X POST "http://localhost:8081/fileUpload" \
-  -H "Session-UUID: my-session-123" \
+  -H "Session-UUID: demo-session" \
   -F 'metadata={
     "dbms": "oracle",
-    "projectName": "MyProject",
+    "projectName": "DemoProject",
     "systems": [
-      {"name": "SystemA", "sp": ["PROC_A.sql", "FUNC_A.sql"]},
-      {"name": "SystemB", "sp": ["PROC_B.sql"]}
+      {"name": "SYSTEM_A", "sp": ["PROC_A.sql", "FUNC_A.sql"]}
     ],
-    "ddl": ["DDL_TABLES.sql", "DDL_VIEWS.sql"],
-    "sequence": ["SEQ_ID.sql"]
+    "ddl": ["DDL_TABLE.sql"],
+    "sequence": ["SEQ_USER.sql"],
+    "testmode": false
   }' \
   -F "files=@/path/to/PROC_A.sql" \
   -F "files=@/path/to/FUNC_A.sql" \
-  -F "files=@/path/to/PROC_B.sql" \
-  -F "files=@/path/to/DDL_TABLES.sql" \
-  -F "files=@/path/to/DDL_VIEWS.sql" \
-  -F "files=@/path/to/SEQ_ID.sql"
+  -F "files=@/path/to/DDL_TABLE.sql" \
+  -F "files=@/path/to/SEQ_USER.sql"
 ```
 
-**요청 파라미터:**
+> `testmode=true` 또는 `testMode=true`이면 업로드 없이 기존 파일만 확인합니다.
 
-| 파라미터 | 타입 | 필수 | 설명 |
-|---------|------|------|------|
-| `metadata` | JSON String | ✅ | 업로드 메타데이터 (아래 참조) |
-| `files` | MultipartFile[] | ❌ | 업로드할 파일 배열 (testmode=true일 때 선택) |
-
-**metadata 구조:**
-
-```json
-{
-  "dbms": "oracle",
-  "projectName": "MyProject",
-  "systems": [
-    {"name": "SystemA", "sp": ["파일명1.sql", "파일명2.sql"]},
-    {"name": "SystemB", "sp": ["파일명3.sql"]}
-  ],
-  "ddl": ["DDL_파일명.sql"],
-  "sequence": ["SEQ_파일명.sql"],
-  "testmode": false
-}
-```
-
-**metadata 필드 설명:**
-
-| 필드 | 타입 | 필수 | 설명 |
-|-----|------|------|------|
-| `dbms` | String | ✅ | 데이터베이스 종류 (oracle 등) |
-| `projectName` | String | ✅ | 프로젝트명 |
-| `systems` | Array | ✅ | 시스템별 SP 파일 목록 |
-| `ddl` | Array | ❌ | DDL 파일 목록 |
-| `sequence` | Array | ❌ | Sequence 파일 목록 |
-| `testmode` | Boolean | ❌ | true: 기존 파일만 조회, false: 업로드 파일 저장 (기본값: false) |
-
-**testmode 동작:**
-- **testmode=true**: 업로드 파일 없이 기존 파일만 조회 (테스트용)
-- **testmode=false**: 기존 파일 우선, 없으면 업로드 파일 저장
-
-**응답 형식 (성공):**
-
-```json
-{
-  "dbms": "oracle",
-  "successFiles": [
-    {
-      "system": "SystemA",
-      "fileName": "PROC_A.sql",
-      "filePath": "/path/to/data/session/project/src/SystemA/PROC_A.sql",
-      "fileContent": "CREATE OR REPLACE PROCEDURE PROC_A...",
-      "analysisExists": "false"
-    },
-    {
-      "system": "SystemA",
-      "fileName": "FUNC_A.sql",
-      "filePath": "/path/to/data/session/project/src/SystemA/FUNC_A.sql",
-      "fileContent": "CREATE OR REPLACE FUNCTION FUNC_A...",
-      "analysisExists": "true"
-    }
-  ]
-}
-```
-
-**응답 형식 (실패):**
-
-실패 시 HTTP 에러 응답 (400/500)이 반환됩니다.
-
-```json
-{
-  "timestamp": "2024-01-01T10:00:00.000+00:00",
-  "status": 500,
-  "error": "Internal Server Error",
-  "message": "업로드 처리 실패: system=SystemB, file=bad_file.sql - 파일이 존재하지 않으며 업로드 파일도 없습니다",
-  "path": "/fileUpload"
-}
-```
-
-**파일 저장 규칙:**
-
-| 파일 분류 | 저장 디렉터리 | 비고 |
-|-----------|-------------|------|
-| systems.sp[] | `{BASE_DIR}/{session}/{project}/src/{system}/` | 시스템별 SP 파일 |
-| ddl[] | `{BASE_DIR}/{session}/{project}/ddl/` | DDL 파일 |
-| sequence[] | `{BASE_DIR}/{session}/{project}/sequence/` | Sequence 파일 |
-
-**에러 처리:**
-- **전체 성공/실패 방식**: 모든 파일 처리 성공 시에만 200 OK 반환
-- 하나라도 실패하면 즉시 중단하고 HTTP 에러 응답 반환
-- testmode=false일 때 업로드 파일이 없으면 에러 발생
-- 부분 성공은 지원하지 않음 (트랜잭션 방식)
-
----
-
-### 🔍 API 2: 파일 파싱
-
-**엔드포인트:** `POST /parsing`
-
-**역할:** 업로드된 SP 파일을 시스템별로 ANTLR 파싱하여 AST JSON을 생성합니다.
-
-**요청 예시:**
+### 8.3 파싱 요청 예제
 
 ```bash
 curl -X POST "http://localhost:8081/parsing" \
+  -H "Session-UUID: demo-session" \
   -H "Content-Type: application/json" \
-  -H "Session-UUID: my-session-123" \
   -d '{
-    "dbms": "oracle",
-    "projectName": "MyProject",
-    "systems": [
-      {"name": "SystemA", "sp": ["PROC_A.sql", "FUNC_A.sql"]},
-      {"name": "SystemB", "sp": ["PROC_B.sql"]}
-    ]
-  }'
+        "dbms": "oracle",
+        "projectName": "DemoProject",
+        "systems": [
+          {"name": "SYSTEM_A", "sp": ["PROC_A.sql", "FUNC_A.sql"]}
+        ]
+      }'
 ```
 
-**요청 바디:**
+### 8.4 에러 응답 샘플
 
-```json
-{
-  "dbms": "oracle",
-  "projectName": "MyProject",
-  "systems": [
-    {"name": "시스템명1", "sp": ["파일명1.sql", "파일명2.sql"]},
-    {"name": "시스템명2", "sp": ["파일명3.sql"]}
-  ]
-}
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{"detail":"세션 정보가 없습니다"}
 ```
 
-**응답 형식 (성공):**
+```http
+HTTP/1.1 500 Internal Server Error
+Content-Type: application/json
 
-```json
-{
-  "dbms": "oracle",
-  "successFiles": [
-    {
-      "system": "SystemA",
-      "fileName": "PROC_A.sql",
-      "fileContent": "CREATE OR REPLACE PROCEDURE PROC_A...",
-      "analysisExists": "true"
-    },
-    {
-      "system": "SystemA",
-      "fileName": "FUNC_A.sql",
-      "fileContent": "CREATE OR REPLACE FUNCTION FUNC_A...",
-      "analysisExists": "true"
-    }
-  ]
-}
+{"detail":"Unexpected error: 업로드 처리 실패: system=SYSTEM_A, file=PROC_A.sql - 파일이 존재하지 않으며 업로드 파일도 없습니다"}
 ```
-
-**응답 형식 (실패):**
-
-실패 시 HTTP 에러 응답 (400/500)이 반환됩니다.
-
-```json
-{
-  "timestamp": "2024-01-01T10:00:00.000+00:00",
-  "status": 500,
-  "error": "Internal Server Error",
-  "message": "파일을 찾을 수 없습니다: bad_file.sql",
-  "path": "/parsing"
-}
-```
-
-**생성되는 파일:**
-
-파싱이 성공하면 다음 위치에 JSON 파일이 생성됩니다:
-```
-{BASE_DIR}/{session}/{project}/analysis/{system}/{파일명}.json
-```
-
-예: `SystemA/PROC_A.sql` → `analysis/SystemA/PROC_A.json`
-
-**참고:**
-- 이미 분석된 파일은 자동으로 스킵되어 재분석하지 않습니다
-- SP 파일만 분석 대상이며, DDL/Sequence 파일은 제외됩니다
-
-**에러 처리:**
-- **전체 성공/실패 방식**: 모든 파일 파싱 성공 시에만 200 OK 반환
-- 하나라도 실패하면 즉시 중단하고 HTTP 에러 응답 반환
-- 파일을 찾을 수 없거나 파싱 오류 시 500 에러 반환
-- 부분 성공은 지원하지 않음 (트랜잭션 방식)
 
 ---
 
-<!-- (삭제됨) API 3: 테스트 샘플 처리 - 요구사항에 따라 제거됨 -->
+## 9. 검증 & 테스트 전략
 
-## 📁 데이터 구조
+### 9.1 수동 검증 절차
 
-### 세션별 파일 레이아웃
+1. `{BASE_DIR}/{Session-UUID}/{projectName}/src/{system}/`에 테스트용 SQL 파일을 준비합니다.
+2. 서버를 실행한 뒤 `POST /fileUpload`를 호출하여 파일이 정상적으로 응답되는지 확인합니다.
+3. 이어서 `POST /parsing`을 호출하면 `{analysis}/{system}/{파일명}.json`이 생성됩니다.
+4. 생성된 JSON이 기대한 AST 구조인지 직접 열어 확인합니다.
 
+### 9.2 IDE 실행 (권장)
+
+- `src/test/java/legacymodernizer/parser/AntlrAnalysisTest.java`를 IDE에서 열고 **Run 버튼을 클릭**하여 실행합니다.
+- 테스트는 하드코딩된 상수(`Session-UUID = TestSession`, `projectName = text2sql`)를 사용하므로, 실행 전에 아래 경로에 샘플 파일을 준비해야 합니다.
+  ```
+  {BASE_DIR}/TestSession/text2sql/src/{시스템명}/샘플.sql
+  ```
+- 테스트 시작 시 기존 `analysis/` 디렉터리를 자동으로 비워 캐시 영향 없이 파싱을 검증합니다.
+
+### 9.3 CLI 실행 (선택)
+
+IDE 환경이 준비되지 않은 경우에만 아래 명령으로 동일 테스트를 실행할 수 있습니다.
+```bash
+mvn -Dtest=AntlrAnalysisTest test
 ```
-BASE_DIR/  (프로젝트 상위/data 또는 DOCKER_COMPOSE_CONTEXT)
-└── {Session-UUID}/              # 세션별 작업 공간
-    └── {ProjectName}/           # 프로젝트별 공간
-        ├── src/                 # SP 파일 (시스템별 하위 구조)
-        │   ├── {System1}/
-        │   │   └── *.sql
-        │   └── {System2}/
-        │       └── *.sql
-        ├── ddl/                 # DDL 파일
-        │   └── *.sql
-        ├── sequence/            # Sequence 파일
-        │   └── *.sql
-        └── analysis/            # ANTLR 파싱 결과 (시스템별 하위 구조)
-            ├── {System1}/
-            │   └── *.json
-            └── {System2}/
-                └── *.json
-```
+> 이때도 `{BASE_DIR}/TestSession/text2sql/src/` 경로에 최소 1개 이상의 SQL 파일이 존재해야 합니다.
 
-### AST JSON 구조
+### 9.4 테스트 커버리지 포인트
 
-파싱 결과로 생성되는 JSON은 다음과 같은 트리 구조를 가집니다:
-
-```json
-{
-  "type": "ROOT",
-  "startLine": 0,
-  "endLine": 0,
-  "children": [
-
-    {
-      "type": "PROCEDURE",
-      "startLine": 1,
-      "endLine": 50,
-      "children": [
-        {
-          "type": "SPEC",
-          "startLine": 1,
-          "endLine": 5,
-          "children": []
-        },
-        {
-          "type": "SELECT",
-          "startLine": 10,
-          "endLine": 15,
-          "children": []
-        },
-        {
-          "type": "INSERT",
-          "startLine": 20,
-          "endLine": 25,
-          "children": []
-        },
-        {
-          "type": "IF",
-          "startLine": 30,
-          "endLine": 40,
-          "children": [
-            {
-              "type": "UPDATE",
-              "startLine": 32,
-              "endLine": 35,
-              "children": []
-            }
-          ]
-        },
-        {
-          "type": "EXCEPTION",
-          "startLine": 45,
-          "endLine": 48,
-          "children": []
-        }
-      ]
-    }
-  ]
-}
-```
-
-
-**노드 구조:**
-
-| 필드 | 타입 | 설명 |
-|-----|------|------|
-| `type` | String | 구문 타입 (PROCEDURE/FUNCTION/SELECT/INSERT 등) |
-| `startLine` | Integer | 구문 시작 라인 번호 (1-based) |
-| `endLine` | Integer | 구문 종료 라인 번호 (1-based) |
-| `children` | Array | 하위 구문 노드 배열 |
-
-**지원하는 주요 구문 타입:**
-
-- `PROCEDURE` - 프로시저
-- `FUNCTION` - 함수
-- `PACKAGE` - 패키지
-- `SPEC` - 파라미터 선언부
-- `DECLARE` - 변수 선언부
-- `SELECT` - SELECT 구문
-- `INSERT` - INSERT 구문
-- `UPDATE` - UPDATE 구문
-- `DELETE` - DELETE 구문
-- `MERGE` - MERGE 구문
-- `IF` - IF 조건문
-- `LOOP` - LOOP 반복문
-- `EXCEPTION` - 예외 처리
+| 테스트 항목 | 내용 |
+|-------------|------|
+| 파일 검색 | 시스템 디렉터리 내 모든 SQL 스캔 |
+| 파싱 실행 | ANTLR 파싱 + JSON 생성 |
+| 결과 검증 | 생성된 JSON 존재 여부 및 비지 않음 확인 |
 
 ---
 
-## 📂 디렉터리 구조
+## 10. 참고 자료
 
-```
-Antlr-Server/
-├── 📄 pom.xml                           # Maven 프로젝트 설정
-├── 📄 README.md                         # 프로젝트 문서 (이 파일)
-├── 📄 Dockerfile                        # Docker 이미지 빌드 설정
-├── 📄 docker-compose.yml                # Docker Compose 설정
-│
-├── 📁 src/
-│   ├── 📁 main/
-│   │   ├── 📁 java/legacymodernizer/parser/
-│   │   │   ├── 📄 ParserApplication.java           # Spring Boot 메인 클래스
-│   │   │   │
-│   │   │   ├── 📁 controller/                      # API 컨트롤러
-│   │   │   │   ├── HealthCheckController.java      # 헬스체크 API
-│   │   │   │   └── FileUploadController.java       # 파일 업로드/파싱/샘플 API
-│   │   │   │
-│   │   │   ├── 📁 service/                         # 비즈니스 로직
-│   │   │   │   └── PlSqlFileParserService.java     # 파일 저장/파싱
-│   │   │   │
-│   │   │   ├── 📁 antlr/                           # ANTLR 관련 클래스
-│   │   │   │   ├── CustomPlSqlListener.java        # 구문 트리 리스너
-│   │   │   │   ├── Node.java                       # AST 노드 클래스
-│   │   │   │   ├── CaseChangingCharStream.java     # 대소문자 변환 스트림
-│   │   │   │   └── plsql/                          # ANTLR 생성 파일
-│   │   │   │       ├── PlSqlLexer.java
-│   │   │   │       ├── PlSqlParser.java
-│   │   │   │       └── PlSqlParserListener.java
-│   │   │   │
-│   │   │   └── 📁 config/                          # 설정 클래스
-│   │   │       └── WebConfig.java                  # CORS 설정
-│   │   │
-│   │   └── 📁 resources/
-│   │       └── 📄 application.properties            # 애플리케이션 설정
-│   │
-│   └── 📁 test/
-│       └── 📁 java/legacymodernizer/parser/
-│           └── AntlrAnalysisTest.java               # 파싱 테스트
-│
-└── 📁 target/                                       # 빌드 산출물
-    ├── parser-0.0.1-SNAPSHOT.jar                    # 실행 가능한 JAR
-    └── classes/                                     # 컴파일된 클래스
-```
-
-### 주요 모듈 설명
-
-#### 📡 `controller/FileUploadController.java`
-API 엔드포인트를 정의하고 요청을 처리합니다.
-
-**주요 메서드:**
-- `fileUpload()`: `/fileUpload` - 파일 업로드 처리 (testmode 지원)
-- `analysisContext()`: `/parsing` - 시스템별 SP 파싱 실행
-
-#### ⚙️ `service/PlSqlFileParserService.java`
-파일 저장, 파싱, 검색의 핵심 로직을 5개 섹션으로 구현합니다.
-
-**📂 경로 유틸리티:**
-- `toBaseName()`: 경로에서 파일명 추출
-- `toBaseNameWithoutExt()`: 확장자 제거
-- `getProjectRootDirectory()`: 프로젝트 루트 경로 반환
-- `getTargetDirectory()`: 파일명 기반 타겟 디렉터리 반환 (src/ddl/sequence)
-- `getAnalysisDirectory()`: 분석 디렉터리 경로 반환
-- `getBucketForFile()`: 파일이 속한 버킷 판별
-- `detectSystemNameForFile()`: src 하위 파일의 시스템명 추출
-
-**💾 파일 I/O:**
-- `readFileContent()`: 다중 인코딩 자동 감지 읽기 (UTF-8 → EUC-KR → MS949)
-- `saveToBucketFromStream()`: 버킷에 파일 저장 (시스템 하위 지원)
-- `createDirectoryIfNotExists()`: 디렉터리 생성
-
-**🔍 파싱 및 분석:**
-- `parseAndSaveStructure()`: ANTLR 파싱 후 JSON 저장
-- `analysisExists()`: 분석 결과 파일 존재 확인
-- `analyzeSpIfNeeded()`: 필요 시에만 SP 파일 분석
-
-**📤 업로드 처리:**
-- `processUploadByMetadata()`: 메타데이터 기반 파일 업로드 (기존 파일 우선)
-- `processParsingBySystems()`: 시스템별 SP 파싱 처리
-- `saveBucketListFromMap()`: DDL/SEQ 버킷 파일 저장
-
-**🔎 파일 검색 및 인덱싱:**
-- `buildProjectFileIndex()`: 프로젝트 전체 파일 인덱스 생성
-- `locateFileByName()`: 인덱스 기반 파일 검색 (fallback: 재귀 탐색)
-- `findExistingSqlFile()`: SQL 파일 재귀 검색
-- `getFileInfoByName()`: 파일명으로 정보 조회
-- `makeFileInfo()`: 파일 정보 맵 생성
-
-#### 🎧 `antlr/CustomPlSqlListener.java`
-ANTLR 파스 트리를 순회하며 AST 노드를 수집합니다.
-
-**주요 기능:**
-- 구문별 `enter*` / `exit*` 메서드 구현
-- 중첩 구조 관리 (스택 기반)
-- 라인 번호 추적
-
-#### 📦 `antlr/Node.java`
-AST 노드를 표현하는 데이터 클래스입니다.
-
-**주요 속성:**
-- `type`: 구문 타입
-- `startLine`: 시작 라인
-- `endLine`: 종료 라인
-- `children`: 하위 노드 목록
-
-**주요 메서드:**
-- `toJson()`: JSON 문자열로 직렬화
+- [ANTLR 4 공식 문서](https://github.com/antlr/antlr4)
+- [Spring Boot 3.3 레퍼런스](https://docs.spring.io/spring-boot/docs/3.3.0/reference/html/)
+- [Legacy Modernizer 플랫폼 개요](사내 위키)
 
 ---
-
-## 🧪 테스트
-
-### 테스트 시 필요한 것
-
-**1. 테스트 데이터 위치:**
-```
-{BASE_DIR}/TestSession_5/TestProject_5/src/
-├── PRC_GEN_EQUIPMENTS_DAM.sql
-├── YOUR_PROCEDURE.sql
-└── YOUR_PACKAGE.sql
-```
-
-**2. 지원 파일 확장자:** `.sql`, `.plsql`, `.pls`, `.pck`, `.txt`
-
-**3. 테스트 설정:**
-- 테스트 세션: `TestSession_5`
-- 테스트 프로젝트: `TestProject_5`
-- 시스템명: `TEST`
-
-### 테스트 함수 설명
-
-#### `testAnalysisWithExistingFiles()`
-- `src/` 폴더의 모든 SQL 파일을 자동 스캔하여 파싱
-- `analysis/TEST/` 폴더에 JSON 결과 생성 확인
-- 테스트 전 `analysis/` 폴더 자동 정리
-- 파일 검색, 파싱, JSON 생성까지 전체 플로우 검증
-
----
-
-## 🛠️ 수정/확장 가이드
-
-### 새 구문 타입 추가
-
-`CustomPlSqlListener.java`에서 새로운 구문 타입을 인식하도록 확장할 수 있습니다:
-
-```java
-@Override
-public void enterMerge_statement(PlSqlParser.Merge_statementContext ctx) {
-    enterStatement("MERGE", ctx.getStart().getLine());
-}
-
-@Override
-public void exitMerge_statement(PlSqlParser.Merge_statementContext ctx) {
-    exitStatement("MERGE", ctx.getStop().getLine());
-}
-```
-
-### 파일 크기 제한 변경
-
-`application.properties`에서 업로드 크기 제한을 수정할 수 있습니다:
-
-```properties
-spring.servlet.multipart.max-file-size=10MB
-spring.servlet.multipart.max-request-size=10MB
-```
----
-
-## 📞 지원
-
-문제가 발생하거나 질문이 있으시면 이슈를 생성해 주세요.
-
----
-
-## 📄 라이선스
-
-내부 프로젝트 용도(사내 배포). 별도 라이선스 고지 없으면 본 저장소 외부 배포 금지.
-
-
----
-
-<div align="center">
-
-**Made with ❤️ by Legacy Modernizer Team**
-
-⭐ 이 프로젝트가 유용하다면 Star를 눌러주세요!
-
-</div>
