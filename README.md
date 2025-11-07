@@ -1,6 +1,8 @@
 # Legacy Modernizer ANTLR Server - Parsing 파이프라인 완벽 가이드
 
-> **PL/SQL 파일을 세션 단위로 수집하고 ANTLR로 파싱하여 AST JSON을 제공하는 Spring Boot 기반 백엔드**
+> **다양한 DBMS(Oracle, PostgreSQL 등)의 SQL 파일을 세션 단위로 수집하고 ANTLR로 파싱하여 AST JSON을 제공하는 Spring Boot 기반 백엔드**
+>
+> 전략 패턴(Strategy Pattern)을 통해 DBMS별로 적절한 파서를 자동 선택하여 파싱을 수행합니다.
 >
 > 이 문서는 새로 합류한 개발자가 프로젝트의 전체 구조와 실제 동작 원리를 빠르게 이해하고,
 > 필요한 수정 지점을 즉시 파악할 수 있도록 작성되었습니다.
@@ -92,20 +94,28 @@ Legacy Modernizer 플랫폼의 첫 번째 게이트웨이로, **원본 PL/SQL �
 └────────────────────────────────────────────────────────────┘
 ```
 
-### 2.2 내부 모듈 흐름
+### 2.2 내부 모듈 흐름 (전략 패턴 기반)
 
 ```text
 Controller (FileUploadController)
    │
-   ├─ PlSqlFileParserService.processUploadByMetadata()
+   ├─ dbms 파라미터 추출
+   ├─ ParserStrategyFactory.getStrategy(dbms)
+   │      ├─ "oracle" / "plsql" → PlSqlParserStrategy
+   │      ├─ "postgresql" / "postgres" / "pg" → PostgreSqlParserStrategy
+   │      └─ 지원하지 않는 타입 → IllegalArgumentException
+   │
+   ├─ DbmsParserStrategy.processUploadByMetadata()
    │      ├─ buildProjectFileIndex()
    │      ├─ saveToBucketFromStream()
    │      └─ readFileContent() + analysisExists()
    │
-   └─ PlSqlFileParserService.processParsingBySystems()
+   └─ DbmsParserStrategy.processParsingBySystems()
           ├─ locateFileByName()
-          ├─ analyzeSpIfNeeded() → parseAndSaveStructure()
-          └─ CustomPlSqlListener → Node.toJson()
+          ├─ analyzeSpIfNeeded() → parseFile()
+          │      ├─ [Oracle] PlSqlLexer/Parser + CustomPlSqlListener
+          │      └─ [PostgreSQL] PostgreSQLLexer/Parser + CustomPostgreSQLListener
+          └─ Node.toJson() → JSON 파일 저장
 ```
 
 ### 2.3 주요 의존 요소
@@ -113,11 +123,24 @@ Controller (FileUploadController)
 | 구성 요소 | 역할 | 세부 내용 |
 |-----------|------|-----------|
 | **Spring Boot 3.3.0** | REST API + DI | Controller/Service 구조 구성 |
-| **Jakarta Servlet** | 헤더 추출 | `Session-UUID` 확인 |
+| **Jakarta Servlet** | 헤더 추출 | `Session-UUID`, `dbms` 파라미터 확인 |
 | **Jackson** | JSON 파싱 | metadata 문자열 → Map |
-| **ANTLR 4.13.1** | 파서 생성 | Lexer/Parser/Listener 실행 |
+| **ANTLR 4.13.1** | 파서 생성 | Oracle/PostgreSQL Lexer/Parser/Listener 실행 |
+| **Strategy Pattern** | DBMS별 파서 선택 | ParserStrategyFactory로 동적 전략 선택 |
 | **Lombok** | 보일러플레이트 제거 | `@RequiredArgsConstructor`, `@Slf4j` 등 |
 | **Maven** | 빌드 도구 | `mvn clean install` 파이프라인 |
+
+### 2.4 지원 DBMS 목록
+
+| DBMS | 전략 클래스 | dbms 파라미터 | Lexer/Parser |
+|------|------------|--------------|--------------|
+| **Oracle** | PlSqlParserStrategy | "oracle", "plsql" | PlSqlLexer/Parser + CustomPlSqlListener |
+| **PostgreSQL** | PostgreSqlParserStrategy | "postgresql", "postgres", "pg" | PostgreSQLLexer/Parser + CustomPostgreSQLListener |
+
+> 새로운 DBMS 지원 추가 시:
+> 1. `DbmsParserStrategy` 인터페이스를 구현하는 새 전략 클래스 생성
+> 2. `ParserStrategyFactory.initStrategyMap()`에 매핑 추가
+> 3. ANTLR 문법 파일(.g4)로부터 Lexer/Parser 생성
 
 ---
 
@@ -210,19 +233,47 @@ Controller (FileUploadController)
 ### 4.1 전체 플로우 개요
 
 ```
+[0] DBMS 전략 선택
+     └─ dbms 파라미터 확인 → ParserStrategyFactory → 적절한 전략 반환
 [1] 업로드 요청 (POST /fileUpload)
      └─ metadata JSON 파싱 → 파일 인덱싱/저장 → 성공 파일 목록 응답
 [2] 파싱 요청 (POST /parsing)
-     └─ 파일 검색 → JSON 캐시 확인 → 필요 시 ANTLR 파싱 → 결과 응답
+     └─ 파일 검색 → JSON 캐시 확인 → 필요 시 DBMS별 ANTLR 파싱 → 결과 응답
 ```
 
-### 4.2 Step 1. 업로드 요청 수신
+### 4.2 Step 0. DBMS 전략 선택 (Strategy Pattern)
+
+- **팩토리**: `ParserStrategyFactory.getStrategy(dbms)`
+- **입력**: `dbms` 파라미터 (예: "oracle", "postgresql")
+- **출력**: 해당 DBMS의 `DbmsParserStrategy` 구현체
+- 지원하지 않는 DBMS 타입 시 `IllegalArgumentException` 발생
+
+```java
+// 예시: FileUploadController에서 전략 선택
+String dbmsType = (String) metadata.get("dbms");
+DbmsParserStrategy strategy = parserStrategyFactory.getStrategy(dbmsType);
+
+// 선택된 전략으로 처리
+Map<String, Object> result = strategy.processUploadByMetadata(...);
+```
+
+**전략 매핑 규칙**:
+
+| 입력 값 | 선택되는 전략 |
+|---------|---------------|
+| "oracle", "plsql" | PlSqlParserStrategy (Oracle PL/SQL) |
+| "postgresql", "postgres", "pg" | PostgreSqlParserStrategy (PostgreSQL) |
+| null 또는 빈 문자열 | PlSqlParserStrategy (기본값) |
+| 기타 | 예외 발생 |
+
+### 4.3 Step 1. 업로드 요청 수신
 
 - **컨트롤러**: `FileUploadController.fileUpload(...)`
 - **헤더**: `Session-UUID` (필수)
-- **입력**: `metadata` (JSON 문자열), `files` (MultipartFile[])
+- **입력**: `metadata` (JSON 문자열 - **`dbms` 필드 포함**), `files` (MultipartFile[])
 - metadata 파싱 실패 시 `400 Bad Request`
 - 세션 헤더 누락 시 `400 Bad Request`
+- **dbms 파라미터로 적절한 파싱 전략이 선택됨**
 
 ```java
 @PostMapping(value = "/fileUpload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -239,35 +290,36 @@ public ResponseEntity<Map<String, Object>> fileUpload(
 }
 ```
 
-### 4.3 Step 2. 파일 인덱싱 & 저장 로직
+### 4.4 Step 2. 파일 인덱싱 & 저장 로직
 
-#### 4.3.1 `buildProjectFileIndex`
+#### 4.4.1 `buildProjectFileIndex`
 
 - `src/` 디렉터리 재귀 탐색 + `ddl/`, `sequence/` 1-depth 탐색
 - 소문자 파일명 → `File` 객체 Map 구성
 - 업로드 이전에 이미 존재하는 파일 우선 반환
 
-#### 4.3.2 `saveToBucketFromStream`
+#### 4.4.2 `saveToBucketFromStream`
 
 - 버킷(`src`/`ddl`/`sequence`) 기반으로 저장 경로 결정
 - 시스템명이 있는 경우 `src/{system}/` 하위에 파일 생성
 - 기존 파일이 있으면 덮어쓰기 (REPLACE_EXISTING)
 
-#### 4.3.3 인코딩 감지 `readFileContent`
+#### 4.4.3 인코딩 감지 `readFileContent`
 
 1. UTF-8 시도 → 실패 시
 2. EUC-KR → 실패 시
 3. MS949 → 마지막 시도
 
-### 4.4 Step 3. 성공 응답 포맷
+### 4.5 Step 3. 성공 응답 포맷
 
 - 업로드 API는 `successFiles` 배열만 반환합니다.
 - 배열 요소에는 `system`, `fileName`, `filePath`, `fileContent`, `analysisExists` 포함
 - DDL/Sequence 파일은 응답에 포함되지 않습니다 (저장만 수행)
 
-### 4.5 Step 4. 파싱 요청 처리
+### 4.6 Step 4. 파싱 요청 처리
 
 - **컨트롤러**: `FileUploadController.analysisContext(...)`
+- **dbms 파라미터로 적절한 파싱 전략 선택**
 - systems 배열 유효성 검증 (없으면 400)
 - 세션 헤더 필수
 
@@ -284,26 +336,38 @@ public ResponseEntity<Map<String, Object>> analysisContext(
 }
 ```
 
-### 4.6 Step 5. 파일 검색 & 캐시 확인
+### 4.7 Step 5. 파일 검색 & 캐시 확인
 
 - `locateFileByName` : 인덱스 기반 빠른 검색 → 실패 시 재귀 탐색
 - `analysisExists` : `analysis/{system}/{파일명}.json` 존재 여부 확인
 - 이미 분석된 파일은 재파싱하지 않고 `analysisExists=true`로 응답
 
-### 4.7 Step 6. ANTLR 파싱 실행
+### 4.8 Step 6. ANTLR 파싱 실행 (DBMS별 전략 적용)
 
-- `parseAndSaveStructure` 수행 시 흐름
-  1. `CharStreams.fromStream()` → `CaseChangingCharStream`으로 대문자 변환 (Oracle 호환)
-  2. `PlSqlLexer` → `CommonTokenStream`
-  3. `PlSqlParser.sql_script()`로 파스 트리 생성
-  4. `CustomPlSqlListener`가 트리를 순회하며 `Node` 구조 구성
-  5. `Node.toJson()` 결과를 `{analysis}/{system}/{파일명}.json`에 저장
+**선택된 전략의 `parseFile()` 메서드가 호출되며 DBMS별로 다른 파서를 사용합니다.**
 
-### 4.8 Step 7. 응답 및 에러 처리
+#### 4.8.1 Oracle PL/SQL 파싱 (PlSqlParserStrategy)
+
+1. `CharStreams.fromStream()` → `CaseChangingCharStream`으로 대문자 변환 (Oracle 키워드 호환)
+2. `PlSqlLexer` → `CommonTokenStream`
+3. `PlSqlParser.sql_script()`로 파스 트리 생성
+4. `CustomPlSqlListener`가 트리를 순회하며 `Node` 구조 구성
+5. `Node.toJson()` 결과를 `{analysis}/{system}/{파일명}.json`에 저장
+
+#### 4.8.2 PostgreSQL 파싱 (PostgreSqlParserStrategy)
+
+1. `CharStreams.fromStream()` → 원본 그대로 사용 (PostgreSQL은 대소문자 구분)
+2. `PostgreSQLLexer` → `CommonTokenStream`
+3. `PostgreSQLParser.root()`로 파스 트리 생성
+4. `CustomPostgreSQLListener`가 트리를 순회하며 `Node` 구조 구성
+5. `Node.toJson()` 결과를 `{analysis}/{system}/{파일명}.json`에 저장
+
+### 4.9 Step 7. 응답 및 에러 처리
 
 - 모든 파일 처리 성공 시에만 `200 OK`
 - 업로드/파싱 중 하나라도 실패하면 즉시 예외 발생 → `GlobalExceptionHandler`에서 `{"detail":"..."}` 반환
 - 부분 성공 미지원
+- 지원하지 않는 DBMS 타입 입력 시 `IllegalArgumentException` → 400 에러
 
 ---
 
@@ -369,24 +433,41 @@ sequenceDiagram
   4. **업로드 처리**: metadata 기반 파일 처리 흐름
   5. **파일 검색**: 인덱싱, 재귀 탐색, 정보 조회
 
-### 6.4 `antlr/*`
+### 6.4 `service/parsing/*` (전략 패턴 구현)
+
+| 파일 | 역할 | 비고 |
+|------|------|------|
+| `DbmsParserStrategy.java` | DBMS별 파싱 전략 인터페이스 | `processUploadByMetadata()`, `processParsingBySystems()`, `parseFile()` 정의 |
+| `ParserStrategyFactory.java` | 전략 팩토리 클래스 | dbms 타입에 따라 적절한 전략 반환 |
+| `PlSqlParserStrategy.java` | Oracle PL/SQL 전략 구현 | PlSqlLexer/Parser + CustomPlSqlListener 사용 |
+| `PostgreSqlParserStrategy.java` | PostgreSQL 전략 구현 | PostgreSQLLexer/Parser + CustomPostgreSQLListener 사용 |
+
+> **새 DBMS 지원 추가 방법**:
+> 1. `DbmsParserStrategy`를 구현하는 새 클래스 생성
+> 2. 해당 DBMS용 ANTLR Lexer/Parser 준비
+> 3. `ParserStrategyFactory.initStrategyMap()`에 매핑 추가
+
+### 6.5 `antlr/*`
 
 | 파일 | 설명 |
 |------|------|
-| `CaseChangingCharStream.java` | Lexer 입력을 대문자로 변환 |
-| `CustomPlSqlListener.java` | 파스 트리를 순회하며 `Node` 구성 |
+| `CaseChangingCharStream.java` | Lexer 입력을 대문자로 변환 (Oracle용) |
+| `CustomPlSqlListener.java` | PL/SQL 파스 트리를 순회하며 `Node` 구성 |
 | `Node.java` | AST 노드 표현 및 `toJson()` 직렬화 |
-| `plsql/` | ANTLR가 생성한 Lexer/Parser/Listener 파일 (수정 금지) |
+| `plsql/` | ANTLR가 생성한 Oracle Lexer/Parser/Listener 파일 (수정 금지) |
+| `postgresql/CustomPostgreSQLListener.java` | PostgreSQL 파스 트리를 순회하며 `Node` 구성 |
+| `postgresql/` | ANTLR가 생성한 PostgreSQL Lexer/Parser/Listener 파일 (수정 금지) |
 
-### 6.5 `config/WebConfig.java`
+### 6.6 `config/WebConfig.java`
 
 - CORS 설정 (`http://localhost:8080` 허용)
 - `GlobalExceptionHandler`
   - `ResponseStatusException` → HTTP 상태/메시지 변환
+  - `IllegalArgumentException` → `400` (지원하지 않는 DBMS 타입 등)
   - 기타 예외 → `500` + `"Unexpected error: ..."`
   - 모든 응답은 `detail` 단일 필드 유지
 
-### 6.6 `src/main/resources/application.properties`
+### 6.7 `src/main/resources/application.properties`
 
 ```
 spring.application.name=parser
@@ -449,7 +530,7 @@ curl -i http://localhost:8081/
 curl -X POST "http://localhost:8081/fileUpload" \
   -H "Session-UUID: demo-session" \
   -F 'metadata={
-    "dbms": "oracle",
+    "dbms": "oracle",  # oracle/plsql 또는 postgresql/postgres/pg
     "projectName": "DemoProject",
     "systems": [
       {"name": "SYSTEM_A", "sp": ["PROC_A.sql", "FUNC_A.sql"]}
@@ -464,7 +545,11 @@ curl -X POST "http://localhost:8081/fileUpload" \
   -F "files=@/path/to/SEQ_USER.sql"
 ```
 
-> `testmode=true` 또는 `testMode=true`이면 업로드 없이 기존 파일만 확인합니다.
+> **dbms 파라미터**: 이 값에 따라 파싱 전략이 자동 선택됩니다.
+> - Oracle: `"oracle"` 또는 `"plsql"`
+> - PostgreSQL: `"postgresql"`, `"postgres"`, `"pg"`
+>
+> **testmode**: `true`이면 업로드 없이 기존 파일만 확인합니다.
 
 ### 8.3 파싱 요청 예제
 
@@ -473,7 +558,7 @@ curl -X POST "http://localhost:8081/parsing" \
   -H "Session-UUID: demo-session" \
   -H "Content-Type: application/json" \
   -d '{
-        "dbms": "oracle",
+        "dbms": "oracle",  // oracle/plsql 또는 postgresql/postgres/pg
         "projectName": "DemoProject",
         "systems": [
           {"name": "SYSTEM_A", "sp": ["PROC_A.sql", "FUNC_A.sql"]}
@@ -481,7 +566,13 @@ curl -X POST "http://localhost:8081/parsing" \
       }'
 ```
 
+> **dbms 파라미터 필수**: 이 값으로 적절한 ANTLR 파서가 선택됩니다.
+> - Oracle → PlSqlLexer/Parser + CustomPlSqlListener
+> - PostgreSQL → PostgreSQLLexer/Parser + CustomPostgreSQLListener
+
 ### 8.4 에러 응답 샘플
+
+#### 8.4.1 세션 정보 누락
 
 ```http
 HTTP/1.1 400 Bad Request
@@ -489,6 +580,17 @@ Content-Type: application/json
 
 {"detail":"세션 정보가 없습니다"}
 ```
+
+#### 8.4.2 지원하지 않는 DBMS 타입
+
+```http
+HTTP/1.1 400 Bad Request
+Content-Type: application/json
+
+{"detail":"지원하지 않는 DBMS 타입입니다: mysql. 지원 가능한 타입: oracle, plsql, postgresql, postgres, pg"}
+```
+
+#### 8.4.3 파일 처리 실패
 
 ```http
 HTTP/1.1 500 Internal Server Error
@@ -511,11 +613,19 @@ Content-Type: application/json
 ### 9.2 IDE 실행 (권장)
 
 - `src/test/java/legacymodernizer/parser/AntlrAnalysisTest.java`를 IDE에서 열고 **Run 버튼을 클릭**하여 실행합니다.
-- 테스트는 하드코딩된 상수(`Session-UUID = TestSession`, `projectName = text2sql`)를 사용하므로, 실행 전에 아래 경로에 샘플 파일을 준비해야 합니다.
+- 테스트는 하드코딩된 상수를 사용합니다:
+  - `Session-UUID = TestSession_o`
+  - `projectName = TestProject`
+  - **`dbms = "oracle"`** (기본값, 코드에서 변경 가능)
+- 실행 전에 아래 경로에 샘플 파일을 준비해야 합니다:
   ```
-  {BASE_DIR}/TestSession/text2sql/src/{시스템명}/샘플.sql
+  {BASE_DIR}/TestSession_o/TestProject/src/{시스템명}/샘플.sql
   ```
 - 테스트 시작 시 기존 `analysis/` 디렉터리를 자동으로 비워 캐시 영향 없이 파싱을 검증합니다.
+- **다른 DBMS 테스트 방법**:
+  1. 테스트 파일에서 `request.put("dbms", "postgresql");`로 변경
+  2. PostgreSQL 샘플 파일 준비
+  3. 테스트 실행 → PostgreSQL 전략이 자동 선택됨
 
 ### 9.3 CLI 실행 (선택)
 
@@ -523,22 +633,50 @@ IDE 환경이 준비되지 않은 경우에만 아래 명령으로 동일 테스
 ```bash
 mvn -Dtest=AntlrAnalysisTest test
 ```
-> 이때도 `{BASE_DIR}/TestSession/text2sql/src/` 경로에 최소 1개 이상의 SQL 파일이 존재해야 합니다.
+> 이때도 `{BASE_DIR}/TestSession_o/TestProject/src/` 경로에 최소 1개 이상의 SQL 파일이 존재해야 합니다.
 
 ### 9.4 테스트 커버리지 포인트
 
 | 테스트 항목 | 내용 |
 |-------------|------|
-| 파일 검색 | 시스템 디렉터리 내 모든 SQL 스캔 |
-| 파싱 실행 | ANTLR 파싱 + JSON 생성 |
-| 결과 검증 | 생성된 JSON 존재 여부 및 비지 않음 확인 |
+| **전략 선택** | dbms 파라미터에 따른 적절한 전략 선택 |
+| **파일 검색** | 시스템 디렉터리 내 모든 SQL 스캔 |
+| **DBMS별 파싱** | Oracle → PlSqlParser, PostgreSQL → PostgreSQLParser |
+| **파싱 실행** | ANTLR 파싱 + JSON 생성 |
+| **결과 검증** | 생성된 JSON 존재 여부 및 비지 않음 확인 |
+
+### 9.5 다양한 DBMS 테스트 예제
+
+테스트 코드에서 `dbms` 값만 변경하면 다른 DBMS를 테스트할 수 있습니다:
+
+```java
+// Oracle 테스트
+Map<String, Object> request = new HashMap<>();
+request.put("projectName", TEST_PROJECT);
+request.put("dbms", "oracle");  // Oracle 전략 선택
+request.put("systems", systems);
+
+// PostgreSQL 테스트
+Map<String, Object> request = new HashMap<>();
+request.put("projectName", TEST_PROJECT);
+request.put("dbms", "postgresql");  // PostgreSQL 전략 선택
+request.put("systems", systems);
+```
 
 ---
 
 ## 10. 참고 자료
 
+### 10.1 기술 문서
+
 - [ANTLR 4 공식 문서](https://github.com/antlr/antlr4)
 - [Spring Boot 3.3 레퍼런스](https://docs.spring.io/spring-boot/docs/3.3.0/reference/html/)
+- [Strategy Pattern (전략 패턴)](https://refactoring.guru/design-patterns/strategy)
 - [Legacy Modernizer 플랫폼 개요](사내 위키)
+
+### 10.2 DBMS별 파서 문법
+
+- [Oracle PL/SQL Grammar](https://github.com/antlr/grammars-v4/tree/master/sql/plsql)
+- [PostgreSQL Grammar](https://github.com/antlr/grammars-v4/tree/master/sql/postgresql)
 
 ---
