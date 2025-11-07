@@ -614,12 +614,12 @@ Content-Type: application/json
 
 - `src/test/java/legacymodernizer/parser/AntlrAnalysisTest.java`를 IDE에서 열고 **Run 버튼을 클릭**하여 실행합니다.
 - 테스트는 하드코딩된 상수를 사용합니다:
-  - `Session-UUID = TestSession_o`
+  - `Session-UUID = TestSession`
   - `projectName = TestProject`
   - **`dbms = "oracle"`** (기본값, 코드에서 변경 가능)
 - 실행 전에 아래 경로에 샘플 파일을 준비해야 합니다:
   ```
-  {BASE_DIR}/TestSession_o/TestProject/src/{시스템명}/샘플.sql
+  {BASE_DIR}/{Session-UUID}/{projectName}/src/{시스템명}/샘플.sql
   ```
 - 테스트 시작 시 기존 `analysis/` 디렉터리를 자동으로 비워 캐시 영향 없이 파싱을 검증합니다.
 - **다른 DBMS 테스트 방법**:
@@ -633,7 +633,7 @@ IDE 환경이 준비되지 않은 경우에만 아래 명령으로 동일 테스
 ```bash
 mvn -Dtest=AntlrAnalysisTest test
 ```
-> 이때도 `{BASE_DIR}/TestSession_o/TestProject/src/` 경로에 최소 1개 이상의 SQL 파일이 존재해야 합니다.
+> 이때도 `{BASE_DIR}/{Session-UUID}/{projectName}/src/` 경로에 최소 1개 이상의 SQL 파일이 존재해야 합니다.
 
 ### 9.4 테스트 커버리지 포인트
 
