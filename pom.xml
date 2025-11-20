@@ -17,7 +17,7 @@
 	    <maven.compiler.source>17</maven.compiler.source>
         <maven.compiler.target>17</maven.compiler.target>
 		<java.version>17</java.version>
-		<antlr4.version>4.13.1</antlr4.version>
+		<antlr4.version>4.13.2</antlr4.version>
 	</properties>
 	<dependencies>
 		<dependency>
