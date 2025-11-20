@@ -1,0 +1,7 @@
+#NOTE: This is a Maven Resolver internal implementation file, its format can be changed without prior notice.
+#Thu May 29 15:05:50 KST 2025
+@default-spring-releases-https\://repo.spring.io/release/.lastUpdated=1748498750793
+https\://repo.maven.apache.org/maven2/.lastUpdated=1748498750884
+https\://repo.spring.io/libs-milestone-local/.error=
+https\://repo.spring.io/libs-milestone-local/.lastUpdated=1748498750559
+https\://repo.spring.io/release/.error=Could not transfer artifact com.google.cloud\:google-cloud-bom\:pom\:0.96.0-alpha from/to spring-releases (https\://repo.spring.io/release)\: status code\: 401, reason phrase\:  (401)
